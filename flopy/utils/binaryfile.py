@@ -1319,8 +1319,14 @@ class CellBudgetFile(object):
             data = binaryread(self.file, dtype, shape=(nlist,))
             if self.verbose:
                 if full3D:
-                    s += 'full 3D arrays not supported for ' + \
-                         'imeth = {}'.format(imeth)
+                    # fudge this for now only for verbose
+                    # s += 'full 3D arrays not supported for ' + \
+                    #      'imeth = {}'.format(imeth)
+                    s += 'a list array of shape ({},{},{})'.format(nlay,
+                                                                   nrow,
+                                                                   ncol)
+                    print(s)
+                    return self.create3D(data, nlay, nrow, ncol)
                 else:
                     s += 'a numpy recarray of size (' + str(nlist) + ', 2)'
                 print(s)
