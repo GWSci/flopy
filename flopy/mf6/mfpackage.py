@@ -14,6 +14,7 @@ from .data.mfstructure import DatumType
 from .data import mfstructure, mfdatautil, mfdata
 from .data import mfdataarray, mfdatalist, mfdatascalar
 from .coordinates import modeldimensions
+from ..utils import Util2d, Util3d, Transient2d, MfList #, check
 
 
 class MFBlockHeader(object):
@@ -1409,6 +1410,13 @@ class MFPackage(PackageContainer):
 
         fd.close()
 
+        
+    # wittw
+    def export(self, f, **kwargs):
+        from flopy.mf6 import export
+        return export.utils.package_helper(f, self, **kwargs)
+
+    
     def create_package_dimensions(self):
         model_dims = None
         if self.container_type[0] == PackageContainerType.model:
