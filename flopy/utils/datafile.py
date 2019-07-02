@@ -4,9 +4,9 @@ abstract classes that should not be directly accessed.
 
 """
 from __future__ import print_function
-import os
 import numpy as np
 import flopy.utils
+from ..discretization.structuredgrid import StructuredGrid
 
 
 class Header(object):
@@ -18,7 +18,8 @@ class Header(object):
         floattype = 'f4'
         if precision == 'double':
             floattype = 'f8'
-        self.header_types = ['head', 'drawdown', 'ucn']
+        self.header_types = ['head', 'drawdown', 'ucn', 'vardis', 'vardisv',
+                             'vardisu']
         if filetype is None:
             self.header_type = None
         else:
@@ -45,13 +46,35 @@ class Header(object):
                     [('ntrans', 'i4'), ('kstp', 'i4'), ('kper', 'i4'),
                      ('totim', floattype), ('text', 'a16'),
                      ('ncol', 'i4'), ('nrow', 'i4'), ('ilay', 'i4')])
+            elif self.header_type == 'vardis':
+                self.dtype = np.dtype([('kstp', 'i4'), ('kper', 'i4'),
+                                       ('pertim', floattype),
+                                       ('totim', floattype),
+                                       ('text', 'a16'),
+                                       ('ncol', 'i4'), ('nrow', 'i4'),
+                                       ('ilay', 'i4')])
+            elif self.header_type == 'vardisv':
+                self.dtype = np.dtype([('kstp', 'i4'), ('kper', 'i4'),
+                                       ('pertim', floattype),
+                                       ('totim', floattype),
+                                       ('text', 'a16'),
+                                       ('ncpl', 'i4'), ('ilay', 'i4'),
+                                       ('m3', 'i4')])
+            elif self.header_type == 'vardisu':
+                self.dtype = np.dtype([('kstp', 'i4'), ('kper', 'i4'),
+                                       ('pertim', floattype),
+                                       ('totim', floattype),
+                                       ('text', 'a16'),
+                                       ('nodes', 'i4'), ('m2', 'i4'),
+                                       ('m3', 'i4')])
+
             self.header = np.ones(1, self.dtype)
         else:
             self.dtype = None
             self.header = None
-            print(
-                'Specified {0} type is not available. Available types are:'.format(
-                    self.header_type))
+            msg = 'Specified {} '.format(self.header_type) + \
+                  'type is not available. Available types are:'
+            print(msg)
             for idx, t in enumerate(self.header_types):
                 print('  {0} {1}'.format(idx + 1, t))
         return
@@ -81,17 +104,23 @@ class Header(object):
 class LayerFile(object):
     """
     The LayerFile class is the abstract base class from which specific derived
-    classes are formed.  LayerFile This class should not be instantiated directly.
+    classes are formed.  LayerFile This class should not be instantiated
+    directly.
 
     """
 
     def __init__(self, filename, precision, verbose, kwargs):
-        assert os.path.exists(
-            filename), "datafile error: datafile not found:" + str(filename)
         self.filename = filename
         self.precision = precision
         self.verbose = verbose
         self.file = open(self.filename, 'rb')
+        # Get filesize to ensure this is not an empty file
+        self.file.seek(0, 2)
+        totalbytes = self.file.tell()
+        self.file.seek(0, 0)  # reset to beginning
+        assert self.file.tell() == 0
+        if totalbytes == 0:
+            raise IOError('datafile error: file is empty: ' + str(filename))
         self.nrow = 0
         self.ncol = 0
         self.nlay = 0
@@ -109,16 +138,16 @@ class LayerFile(object):
 
         self.model = None
         self.dis = None
-        self.sr = None
+        self.mg = None
         if 'model' in kwargs.keys():
             self.model = kwargs.pop('model')
-            self.sr = self.model.sr
+            self.mg = self.model.modelgrid
             self.dis = self.model.dis
         if 'dis' in kwargs.keys():
             self.dis = kwargs.pop('dis')
-            self.sr = self.dis.parent.sr
-        if 'sr' in kwargs.keys():
-            self.sr = kwargs.pop('sr')
+            self.mg = self.dis.parent.modelgrid
+        if "modelgrid" in kwargs.keys():
+            self.mg = kwargs.pop('modelgrid')
         if len(kwargs.keys()) > 0:
             args = ','.join(kwargs.keys())
             raise Exception('LayerFile error: unrecognized kwargs: ' + args)
@@ -128,9 +157,11 @@ class LayerFile(object):
 
         # now that we read the data and know nrow and ncol,
         # we can make a generic sr if needed
-        if self.sr is None:
-            self.sr = flopy.utils.SpatialReference(np.ones(self.ncol),
-                                                   np.ones(self.nrow), 0)
+        if self.mg is None:
+            self.mg = StructuredGrid(delc=np.ones((self.nrow,)),
+                                     delr=np.ones(self.ncol, ),
+                                     xoff=0.0, yoff=0.0,
+                                     angrot=0.0)
         return
 
     def to_shapefile(self, filename, kstpkper=None, totim=None, mflay=None,
@@ -177,26 +208,26 @@ class LayerFile(object):
                                   .transpose()).transpose()
         if mflay != None:
             attrib_dict = {
-                attrib_name + '{0:03d}'.format(mflay): plotarray[0, :, :]}
+                attrib_name + '{}'.format(mflay): plotarray[0, :, :]}
         else:
             attrib_dict = {}
             for k in range(plotarray.shape[0]):
-                name = attrib_name + '{0:03d}'.format(k)
+                name = attrib_name + '{}'.format(k)
                 attrib_dict[name] = plotarray[k]
 
-        from ..export.shapefile_utils import write_grid_shapefile
-        write_grid_shapefile(filename, self.sr, attrib_dict)
+        from ..export.shapefile_utils import write_grid_shapefile2
+        write_grid_shapefile2(filename, self.mg, attrib_dict)
 
     def plot(self, axes=None, kstpkper=None, totim=None, mflay=None,
              filename_base=None, **kwargs):
-        '''
+        """
         Plot 3-D model output data in a specific location
         in LayerFile instance
 
         Parameters
         ----------
         axes : list of matplotlib.pyplot.axis
-            List of matplotlib.pyplot.axis that will be used to plot 
+            List of matplotlib.pyplot.axis that will be used to plot
             data for each layer. If axes=None axes will be generated.
             (default is None)
         kstpkper : tuple of ints
@@ -250,8 +281,8 @@ class LayerFile(object):
         >>> hdobj = flopy.utils.HeadFile('test.hds')
         >>> times = hdobj.get_times()
         >>> hdobj.plot(totim=times[-1])
-        
-        '''
+
+        """
 
         if 'file_extension' in kwargs:
             fext = kwargs.pop('file_extension')
@@ -275,28 +306,32 @@ class LayerFile(object):
             else:
                 i0 = 0
                 i1 = self.nlay
-            filenames = []
-            [filenames.append(
-                '{}_Layer{}.{}'.format(filename_base, k + 1, fext)) for k in
-             range(i0, i1)]
+            filenames = ['{}_Layer{}.{}'.format(filename_base, k + 1, fext)
+                         for k in range(i0, i1)]
 
         # make sure we have a (lay,row,col) shape plotarray
         plotarray = np.atleast_3d(self.get_data(kstpkper=kstpkper,
                                                 totim=totim, mflay=mflay)
                                   .transpose()).transpose()
-        import flopy.plot.plotutil as pu
-        return pu._plot_array_helper(plotarray, model=self.model, sr=self.sr,
-                                     axes=axes,
-                                     filenames=filenames,
-                                     mflay=mflay, **kwargs)
+
+        from flopy.plot.plotutil import PlotUtilities
+
+        return PlotUtilities._plot_array_helper(plotarray,
+                                                model=self.model,
+                                                axes=axes,
+                                                filenames=filenames,
+                                                mflay=mflay,
+                                                modelgrid=self.mg,
+                                                **kwargs)
 
     def _build_index(self):
         """
         Build the recordarray and iposarray, which maps the header information
         to the position in the formatted file.
         """
-        raise Exception(
-            'Abstract method _build_index called in LayerFile.  This method needs to be overridden.')
+        e = 'Abstract method _build_index called in LayerFile.  ' + \
+            'This method needs to be overridden.'
+        raise Exception(e)
 
     def list_records(self):
         """
@@ -471,8 +506,9 @@ class LayerFile(object):
         Read data from file
 
         """
-        raise Exception(
-            'Abstract method _read_data called in LayerFile.  This method needs to be overridden.')
+        e = 'Abstract method _read_data called in LayerFile.  ' + \
+            'This method needs to be overridden.'
+        raise Exception(e)
 
     def _build_kijlist(self, idx):
         if isinstance(idx, list):

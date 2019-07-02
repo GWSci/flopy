@@ -2,13 +2,19 @@ from collections import OrderedDict
 import math
 import sys
 import inspect
-from copy import deepcopy
-from ..data import mfstructure, mfdatautil, mfdata
-from ..mfbase import MFDataException, StructException, ExtFileAction
+import numpy as np
+from ..utils.mfenums import DiscretizationType
+from ..data import mfstructure, mfdata
+from ..mfbase import MFDataException, ExtFileAction
 from .mfstructure import DatumType
+from ...utils import datautil
+from ...datbase import DataListInterface, DataType
+from .mffileaccess import MFFileAccessList
+from .mfdatastorage import DataStorage, DataStorageType, DataStructureType
+from .mfdatautil import to_string
 
 
-class MFList(mfdata.MFMultiDimVar):
+class MFList(mfdata.MFMultiDimVar, DataListInterface):
     """
     Provides an interface for the user to access and update MODFLOW
     scalar data.
@@ -86,20 +92,21 @@ class MFList(mfdata.MFMultiDimVar):
 
 
     """
-    def __init__(self, sim_data, structure, data=None, enable=True, path=None,
-                 dimensions=None):
-        super(MFList, self).__init__(sim_data, structure, enable, path,
-                                     dimensions)
+    def __init__(self, sim_data, model_or_sim, structure, data=None,
+                 enable=True, path=None, dimensions=None, package=None):
+        super(MFList, self).__init__(sim_data, model_or_sim, structure, enable,
+                                     path, dimensions)
         try:
             self._data_storage = self._new_storage()
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(structure.get_model(),
                                   structure.get_package(), path,
                                   'creating storage', structure.name,
                                   inspect.stack()[0][3],
                                   type_, value_, traceback_, None,
-                                  sim_data.debug)
+                                  sim_data.debug, ex)
+        self._package = package
         self._last_line_info = []
         self._data_line = None
         self._temp_dict = {}
@@ -107,20 +114,96 @@ class MFList(mfdata.MFMultiDimVar):
         if data is not None:
             try:
                 self.set_data(data, True)
-            except:
+            except Exception as ex:
                 type_, value_, traceback_ = sys.exc_info()
                 raise MFDataException(structure.get_model(),
                                       structure.get_package(), path,
                                       'setting data', structure.name,
                                       inspect.stack()[0][3],
                                       type_, value_, traceback_, None,
-                                      sim_data.debug)
+                                      sim_data.debug, ex)
+
+    @property
+    def data_type(self):
+        return DataType.list
+
+    @property
+    def package(self):
+        return self._package
+
+    @property
+    def dtype(self):
+        return self.get_data().dtype
+
+    @property
+    def plotable(self):
+        if self.model is None:
+            return False
+        else:
+            return True
+
+    def to_array(self, kper=0, mask=False):
+        i0 = 1
+        sarr = self.get_data(key=kper)
+        if not isinstance(sarr, list):
+            sarr = [sarr]
+        if len(sarr) == 0 or sarr[0] is None:
+            return None
+        if 'inode' in sarr[0].dtype.names:
+            raise NotImplementedError()
+        arrays = {}
+        model_grid = self._data_dimensions.get_model_grid()
+
+        if model_grid._grid_type.value == 1:
+            shape = (model_grid.num_layers(), model_grid.num_rows(),
+                     model_grid.num_columns())
+        elif model_grid._grid_type.value == 2:
+            shape = (model_grid.num_layers(), model_grid.num_cells_per_layer())
+        else:
+            shape = (model_grid.num_cells_per_layer(),)
+
+        for name in sarr[0].dtype.names[i0:]:
+            if not sarr[0].dtype.fields[name][0] == object:
+                arr = np.zeros(shape)
+                arrays[name] = arr.copy()
+
+        if np.isscalar(sarr[0]):
+            # if there are no entries for this kper
+            if sarr[0] == 0:
+                if mask:
+                    for name, arr in arrays.items():
+                        arrays[name][:] = np.NaN
+                return arrays
+            else:
+                raise Exception("MfList: something bad happened")
+
+        for name, arr in arrays.items():
+            cnt = np.zeros(shape, dtype=np.float)
+            #print(name,kper)
+            for sp_rec in sarr:
+                if sp_rec is not None:
+                    for rec in sp_rec:
+                        arr[rec['cellid']] += rec[name]
+                        cnt[rec['cellid']] += 1.
+            # average keys that should not be added
+            if name != 'cond' and name != 'flux':
+                idx = cnt > 0.
+                arr[idx] /= cnt[idx]
+            if mask:
+                arr = np.ma.masked_where(cnt == 0., arr)
+                arr[cnt == 0.] = np.NaN
+
+            arrays[name] = arr.copy()
+        # elif mask:
+        #     for name, arr in arrays.items():
+        #         arrays[name][:] = np.NaN
+        return arrays
 
     def new_simulation(self, sim_data):
         try:
             super(MFList, self).new_simulation(sim_data)
             self._data_storage = self._new_storage()
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(),
@@ -128,7 +211,7 @@ class MFList(mfdata.MFMultiDimVar):
                                   'reinitializing', self.structure.name,
                                   inspect.stack()[0][3],
                                   type_, value_, traceback_, None,
-                                  self._simulation_data.debug)
+                                  self._simulation_data.debug, ex)
 
         self._data_line = None
 
@@ -137,57 +220,64 @@ class MFList(mfdata.MFMultiDimVar):
             if self._get_storage_obj() is None:
                 return False
             return self._get_storage_obj().has_data()
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(), self._path,
                                   'checking for data', self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
-                                  traceback_, None, self._simulation_data.debug)
+                                  traceback_, None,
+                                  self._simulation_data.debug, ex)
 
-    def get_data(self, apply_mult=False):
+    def get_data(self, apply_mult=False, **kwargs):
         try:
             if self._get_storage_obj() is None:
                 return None
             return self._get_storage_obj().get_data()
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(), self._path,
                                   'getting data', self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
-                                  traceback_, None, self._simulation_data.debug)
+                                  traceback_, None,
+                                  self._simulation_data.debug, ex)
 
     def set_data(self, data, autofill=False):
+        self._resync()
         try:
             if self._get_storage_obj() is None:
                 self._data_storage = self._new_storage()
             # store data
             self._get_storage_obj().set_data(data, autofill=autofill)
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(), self._path,
                                   'setting data', self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
-                                  traceback_, None, self._simulation_data.debug)
+                                  traceback_, None,
+                                  self._simulation_data.debug, ex)
 
     def append_data(self, data):
         try:
+            self._resync()
             if self._get_storage_obj() is None:
                 self._data_storage = self._new_storage()
             # store data
             self._get_storage_obj().append_data(data)
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(),
                                   self._path,
                                   'appending data', self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
-                                  traceback_, None, self._simulation_data.debug)
+                                  traceback_, None,
+                                  self._simulation_data.debug, ex)
 
     def append_list_as_record(self, record):
+        self._resync()
         try:
             # convert to tuple
             tuple_record = ()
@@ -195,14 +285,15 @@ class MFList(mfdata.MFMultiDimVar):
                 tuple_record += (item,)
             # store
             self._get_storage_obj().append_data([tuple_record])
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(),
                                   self._path,
                                   'appending data', self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
-                                  traceback_, None, self._simulation_data.debug)
+                                  traceback_, None,
+                                  self._simulation_data.debug, ex)
 
     def update_record(self, record, key_index):
         self.append_list_as_record(record)
@@ -220,7 +311,7 @@ class MFList(mfdata.MFMultiDimVar):
                             return (row, col)
                         col_num += 1
             return None
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             if col is None:
                 col = ''
@@ -231,7 +322,7 @@ class MFList(mfdata.MFMultiDimVar):
                                   traceback_,
                                   'search_term={}\ncol={}'.format(search_term,
                                                                   col),
-                                   self._simulation_data.debug)
+                                   self._simulation_data.debug, ex)
 
     def get_file_entry(self, values_only=False,
                        ext_file_action=ExtFileAction.copy_relative_paths):
@@ -248,7 +339,7 @@ class MFList(mfdata.MFMultiDimVar):
             # write out initial comments
             if storage.pre_data_comments:
                 file_entry.append(storage.pre_data_comments.get_file_entry())
-        except:
+        except Exception as ex:
             type_, value_, traceback_ = sys.exc_info()
             raise MFDataException(self.structure.get_model(),
                                   self.structure.get_package(),
@@ -256,16 +347,18 @@ class MFList(mfdata.MFMultiDimVar):
                                   self.structure.name,
                                   inspect.stack()[0][3], type_, value_,
                                   traceback_, None,
-                                  self._simulation_data.debug)
+                                  self._simulation_data.debug, ex)
 
-        if storage.layer_storage[0].data_storage_type == \
-                mfdata.DataStorageType.external_file:
+        if storage.layer_storage.first_item().data_storage_type == \
+                DataStorageType.external_file:
             try:
                 ext_string = self._get_external_formatting_string(0,
                                                                   ext_file_action)
                 file_entry.append('{}{}{}'.format(indent, indent,
-                                                 ext_string.upper()))
-            except:
+                                                 ext_string))
+                # write file
+
+            except Exception as ex:
                 type_, value_, traceback_ = sys.exc_info()
                 raise MFDataException(self.structure.get_model(),
                                       self.structure.get_package(),
@@ -274,16 +367,16 @@ class MFList(mfdata.MFMultiDimVar):
                                       self.structure.name,
                                       inspect.stack()[0][3], type_, value_,
                                       traceback_, None,
-                                      self._simulation_data.debug)
+                                      self._simulation_data.debug, ex)
         else:
             try:
                 data_complete = storage.get_data()
-                if storage.layer_storage[0].data_storage_type == \
-                        mfdata.DataStorageType.internal_constant:
+                if storage.layer_storage.first_item().data_storage_type == \
+                        DataStorageType.internal_constant:
                     data_lines = 1
                 else:
                     data_lines = len(data_complete)
-            except:
+            except Exception as ex:
                 type_, value_, traceback_ = sys.exc_info()
                 raise MFDataException(self.structure.get_model(),
                                       self.structure.get_package(),
@@ -292,7 +385,7 @@ class MFList(mfdata.MFMultiDimVar):
                                       self.structure.name,
                                       inspect.stack()[0][3], type_, value_,
                                       traceback_, None,
-                                      self._simulation_data.debug)
+                                      self._simulation_data.debug, ex)
 
             # loop through list line by line - assumes first data_item size
             # is representative
@@ -319,8 +412,8 @@ class MFList(mfdata.MFMultiDimVar):
 
     def _get_file_entry_record(self, data_complete, mflist_line, text_line,
                                index, data_set, storage, indent):
-        if storage.layer_storage[0].data_storage_type == \
-                mfdata.DataStorageType.internal_constant:
+        if storage.layer_storage.first_item().data_storage_type == \
+                DataStorageType.internal_constant:
             try:
                 #  constant data
                 data_type = self.structure.data_item_structures[1].type
@@ -328,7 +421,7 @@ class MFList(mfdata.MFMultiDimVar):
                         storage.get_const_val(0), 0, data_type, '')
                 text_line.append('{}{}{}'.format(indent, indent,
                                                  const_str.upper()))
-            except:
+            except Exception as ex:
                 type_, value_, traceback_ = sys.exc_info()
                 raise MFDataException(self.structure.get_model(),
                                       self.structure.get_package(),
@@ -337,7 +430,7 @@ class MFList(mfdata.MFMultiDimVar):
                                       self.structure.name,
                                       inspect.stack()[0][3], type_, value_,
                                       traceback_, None,
-                                      self._simulation_data.debug)
+                                      self._simulation_data.debug, ex)
         else:
             data_dim = self._data_dimensions
             data_line = data_complete[mflist_line]
@@ -349,13 +442,15 @@ class MFList(mfdata.MFMultiDimVar):
                             for aux_var_name in aux_var_names[0]:
                                 if aux_var_name.lower() != 'auxiliary':
                                     data_val = data_line[index]
-                                    text_line.append(storage.to_string(
+                                    text_line.append(to_string(
                                             data_val, data_item.type,
+                                            self._simulation_data,
+                                            self._data_dimensions,
                                             data_item.is_cellid,
                                             data_item.possible_cellid,
                                             data_item))
                                     index += 1
-                    except:
+                    except Exception as ex:
                         type_, value_, traceback_ = sys.exc_info()
                         raise MFDataException(self.structure.get_model(),
                                               self.structure.get_package(),
@@ -366,7 +461,7 @@ class MFList(mfdata.MFMultiDimVar):
                                               inspect.stack()[0][3], type_,
                                               value_,
                                               traceback_, None,
-                                              self._simulation_data.debug)
+                                              self._simulation_data.debug, ex)
                 elif data_item.type == DatumType.record:
                     # record within a record, recurse
                     self._get_file_entry_record(data_complete, mflist_line,
@@ -404,7 +499,7 @@ class MFList(mfdata.MFMultiDimVar):
                                 repeating_key=self._current_key)
                         data_val = data_line[index]
                         if data_item.is_cellid or (data_item.possible_cellid and
-                                self._validate_cellid([data_val], 0)):
+                                storage._validate_cellid([data_val], 0)):
                             if data_item.shape is not None and \
                                     len(data_item.shape) > 0 and \
                                     data_item.shape[0] == 'ncelldim':
@@ -415,13 +510,13 @@ class MFList(mfdata.MFMultiDimVar):
                                                         cellid_size)
                         data_size = 1
                         if len(resolved_shape) == 1 and \
-                                mfdatautil.DatumUtil.is_int(resolved_shape[0]):
+                                datautil.DatumUtil.is_int(resolved_shape[0]):
                             data_size = int(resolved_shape[0])
                             if data_size < 0:
                                 # unable to resolve data size based on shape, use
                                 # the data heading names to resolve data size
                                 data_size = storage.resolve_data_size(index)
-                    except:
+                    except Exception as ex:
                         type_, value_, traceback_ = sys.exc_info()
                         raise MFDataException(self.structure.get_model(),
                                               self.structure.get_package(),
@@ -432,19 +527,21 @@ class MFList(mfdata.MFMultiDimVar):
                                               value_, traceback_,
                                               'Verify that your data is the '
                                               'correct shape',
-                                              self._simulation_data.debug)
+                                              self._simulation_data.debug, ex)
                     for data_index in range(0, data_size):
                         if data_complete_len > index:
                             data_val = data_line[index]
                             if data_item.type == DatumType.keyword:
-                                text_line.append(data_item.display_name)
+                                if data_val is not None:
+                                    text_line.append(data_item.display_name)
                                 if self.structure.block_variable:
                                     # block variables behave differently for
                                     # now.  this needs to be resolved
                                     # more consistently at some point
                                     index += 1
                             elif data_item.type == DatumType.keystring:
-                                text_line.append(data_val)
+                                if data_val is not None:
+                                    text_line.append(data_val)
                                 index += 1
 
                                 # keystring must be at the end of the line so
@@ -472,15 +569,16 @@ class MFList(mfdata.MFMultiDimVar):
                                         try:
                                             k_data_item = ks_structs[
                                                 ks_struct_index]
-                                            text_line.append(
-                                                    storage.to_string(
+                                            text_line.append(to_string(
                                                     data_line[data_index],
                                                     k_data_item.type,
+                                                    self._simulation_data,
+                                                    self._data_dimensions,
                                                     k_data_item.is_cellid,
                                                     k_data_item.possible_cellid,
                                                     k_data_item))
-                                        except:
-                                            message = 'An error occured ' \
+                                        except Exception as ex:
+                                            message = 'An error occurred ' \
                                                       'while converting data '\
                                                       'to a string. This ' \
                                                       'error occurred while ' \
@@ -507,7 +605,7 @@ class MFList(mfdata.MFMultiDimVar):
                                                 message,
                                                 self.
                                                 _simulation_data.
-                                                debug)
+                                                debug, ex)
                                         if ks_struct_index < max_index:
                                             # increment until last record
                                             # entry then repeat last entry
@@ -520,23 +618,22 @@ class MFList(mfdata.MFMultiDimVar):
                                     if data_item.tagged and data_index == 0:
                                         # data item tagged, include data item name
                                         # as a keyword
-                                        text_line.append(
-                                                storage.to_string(data_val,
-                                                                  DatumType.string,
-                                                                  False,
-                                                                  data_item=
-                                                                  data_item))
+                                        text_line.append(to_string(
+                                                    data_val, DatumType.string,
+                                                    self._simulation_data,
+                                                    self._data_dimensions,
+                                                    False, data_item=data_item))
                                         index += 1
                                         data_val = data_line[index]
                                     text_line.append(
-                                            storage.to_string(data_val,
-                                                              data_item.type,
-                                                              data_item.is_cellid,
-                                                              data_item.
-                                                              possible_cellid,
-                                                              data_item))
-                                except:
-                                    message = 'An error occured while ' \
+                                            to_string(data_val, data_item.type,
+                                                      self._simulation_data,
+                                                      self._data_dimensions,
+                                                      data_item.is_cellid,
+                                                      data_item.possible_cellid,
+                                                      data_item))
+                                except Exception as ex:
+                                    message = 'An error occurred while ' \
                                               'converting data to a ' \
                                               'string. ' \
                                               'This error occurred while ' \
@@ -561,7 +658,7 @@ class MFList(mfdata.MFMultiDimVar):
                                                           message,
                                                           self.
                                                           _simulation_data.
-                                                          debug)
+                                                          debug, ex)
                                 index += 1
                         elif not data_item.optional and shape_rule is None:
                             message = 'Not enough data provided ' \
@@ -585,652 +682,93 @@ class MFList(mfdata.MFMultiDimVar):
              pre_data_comments=None):
         super(MFList, self).load(first_line, file_handle, block_header,
                                  pre_data_comments=None)
+        self._resync()
+        file_access = MFFileAccessList( self.structure, self._data_dimensions,
+                                        self._simulation_data, self._path,
+                                        self._current_key)
+        return file_access.load_from_package(
+            first_line, file_handle, self._get_storage_obj(), pre_data_comments)
 
-        # lock things to maximize performance
-        self._data_dimensions.lock()
-
-        self._temp_dict = {}
-        self._last_line_info = []
-        simple_line = False
-        data_loaded = []
-        storage = self._get_storage_obj()
-
-        # read in any pre data comments
-        current_line = self._read_pre_data_comments(first_line, file_handle,
-                                                    pre_data_comments)
-        # reset data line delimiter so that the next split_data_line will
-        # automatically determine the delimiter
-        mfdatautil.ArrayUtil.reset_delimiter_used()
-        arr_line = mfdatautil.ArrayUtil.split_data_line(current_line)
-        if arr_line and (len(arr_line[0]) >= 2 and
-                arr_line[0][:3].upper() == 'END'):
-            return [False, arr_line]
-        store_data = False
-        if len(arr_line) >= 2 and arr_line[0].upper() == 'OPEN/CLOSE':
-            line_num = 0
-            try:
-                storage.process_open_close_line(arr_line, 0)
-            except:
-                message = 'An error occurred while processing the following' \
-                          'open/close line: {}'.format(current_line)
-                type_, value_, traceback_ = sys.exc_info()
-                raise MFDataException(self.structure.get_model(),
-                                      self.structure.get_package(), self._path,
-                                      'processing open/close line',
-                                      self.structure.name,
-                                      inspect.stack()[0][3], type_,
-                                      value_, traceback_, message,
-                                      self._simulation_data.debug)
-        else:
-            try:
-                line_num = 0
-                simple_line = self._load_line(arr_line, line_num, data_loaded,
-                                              True, storage)[1]
-                line_num += 1
-                store_data = True
-            except MFDataException as err:
-                # this could possibly be a constant line.
-                line = file_handle.readline()
-                arr_line = mfdatautil.ArrayUtil.\
-                    split_data_line(line)
-                if len(arr_line) >= 2 and arr_line[0].upper() == 'CONSTANT' \
-                        and len(self.structure.data_item_structures) >= 2 and \
-                        self.structure.data_item_structures[0].name.upper() \
-                        == 'CELLID':
-                    # store first line as a comment
-                    if storage.pre_data_comments is None:
-                        storage.pre_data_comments = \
-                                mfdata.MFComment(current_line, self._path,
-                                                 self._simulation_data, 0)
-                    else:
-                        storage.pre_data_comments.add_text(current_line)
-                    # store constant value for all cellids
-                    storage.layer_storage[0].data_storage_type = \
-                            mfdata.DataStorageType.internal_constant
-                    storage.store_internal(
-                            storage.convert_data(arr_line[1],
-                            self.structure.data_item_structures[1].type,
-                            self.structure.data_item_structures[0]),
-                            0, const=True, multiplier=[1.0])
-                    line = ' '
-                    while line != '':
-                        line = file_handle.readline()
-                        arr_line = mfdatautil.ArrayUtil.\
-                            split_data_line(line)
-                        if arr_line and (len(arr_line[0]) >= 2 and
-                                arr_line[0][:3].upper() == 'END'):
-                            return [False, line]
-                else:
-                    # not a constant or open/close line, exception is valid
-                    comment = 'Unable to process line 1 of data list: ' \
-                              '"{}"'.format(current_line)
-                    type_, value_, traceback_ = sys.exc_info()
-                    raise MFDataException(self.structure.get_model(),
-                                          self.structure.get_package(),
-                                          self._path,
-                                          'loading data list from '
-                                          'package file',
-                                          self.structure.name,
-                                          inspect.stack()[0][3], type_,
-                                          value_, traceback_, comment,
-                                          self._simulation_data.debug)
-        if self.structure.type == DatumType.record or self.structure.type == \
-                DatumType.string:
-            # records only contain a single line
-            storage.append_data(data_loaded)
-            self._data_dimensions.unlock()
-            return [False, None]
-
-        # get block recarray list for later processing
-        recarrays = []
-        parent_block = self.structure.parent_block
-        if parent_block is not None:
-            recarrays = parent_block.get_all_recarrays()
-        recarray_len = len(recarrays)
-
-        # loop until end of block
-        line = ' '
-        while line != '':
-            line = file_handle.readline()
-            arr_line = mfdatautil.ArrayUtil.\
-                split_data_line(line)
-            if arr_line and (len(arr_line[0]) >= 2 and
-                    arr_line[0][:3].upper() == 'END'):
-                # end of block
-                if store_data:
-                    # store as rec array
-                    storage.set_data(data_loaded, self._current_key)
-                self._data_dimensions.unlock()
-                return [False, line]
-            if recarray_len != 1 and \
-                    not mfdata.MFComment.is_comment(arr_line, True):
-                key = mfdatautil.find_keyword(arr_line,
-                                              self.structure.get_keywords())
-                if key is None:
-                    # unexpected text, may be start of another record
-                    if store_data:
-                        storage.set_data(data_loaded, self._current_key)
-                    self._data_dimensions.unlock()
-                    return [True, line]
-            if simple_line and self.structure.num_optional == 0:
-                # do higher performance quick load
-                self._data_line = ()
-                cellid_index = 0
-                cellid_tuple = ()
-                for index, entry in enumerate(self._last_line_info):
-                    for sub_entry in entry:
-                        if sub_entry[1] is not None:
-                            data_structs = self.structure.data_item_structures
-                            if sub_entry[2] > 0:
-                                # is a cellid
-                                cell_num = storage.convert_data(
-                                        arr_line[sub_entry[0]], sub_entry[1],
-                                        data_structs[index])
-                                cellid_tuple += (cell_num - 1,)
-                                # increment index
-                                cellid_index += 1
-                                if cellid_index == sub_entry[2]:
-                                    # end of current cellid
-                                    self._data_line += (cellid_tuple,)
-                                    cellid_index = 0
-                                    cellid_tuple = ()
-                            else:
-                                # not a cellid
-                                self._data_line += (storage.convert_data(
-                                        arr_line[sub_entry[0]], sub_entry[1],
-                                        data_structs[index]),)
-                        else:
-                            self._data_line += (None,)
-                data_loaded.append(self._data_line)
-
-            else:
-                try:
-                    self._load_line(arr_line, line_num, data_loaded, False,
-                                    storage)
-                except:
-                    comment = 'Unable to process line {} of data list: ' \
-                              '"{}"'.format(line_num + 1, line)
-                    type_, value_, traceback_ = sys.exc_info()
-                    raise MFDataException(self.structure.get_model(),
-                                          self.structure.get_package(),
-                                          self._path,
-                                          'loading data list from '
-                                          'package file',
-                                          self.structure.name,
-                                          inspect.stack()[0][3], type_,
-                                          value_, traceback_, comment,
-                                          self._simulation_data.debug)
-            line_num += 1
-        if store_data:
-            # store as rec array
-            storage.set_data(data_loaded, self._current_key)
-        self._data_dimensions.unlock()
-        return [False, None]
-
-    def _new_storage(self):
-        return mfdata.DataStorage(self._simulation_data,
-                                  self._data_dimensions,
-                                  mfdata.DataStorageType.internal_array,
-                                  mfdata.DataStructureType.recarray)
+    def _new_storage(self, stress_period=0):
+        return DataStorage(self._simulation_data, self._model_or_sim,
+                           self._data_dimensions, self.get_file_entry,
+                           DataStorageType.internal_array,
+                           DataStructureType.recarray,
+                           stress_period=stress_period,
+                           data_path=self._path)
 
     def _get_storage_obj(self):
         return self._data_storage
 
-    def _load_line(self, arr_line, line_num, data_loaded, build_type_list,
-                   storage, data_index_start=0, data_set=None,
-                   ignore_optional_vars=False):
-        org_data_line = self._data_line
-        simple_line = True
-        # only initialize if we are at the start of a new line
-        if data_index_start == 0:
-            data_set = self.structure
-            # new line of data
-            self._data_line = ()
-            # determine if at end of block
-            if arr_line and arr_line[0][:3].upper() == 'END':
-                self.enabled = True
-                return arr_line
-        data_index = data_index_start
-        arr_line_len = len(arr_line)
-        if mfdata.MFComment.is_comment(arr_line, True) and \
-                data_index_start == 0:
-            arr_line.insert(0, '\n')
-            self._add_data_line_comment(arr_line, line_num)
-        else:
-            # read variables
-            var_index = 0
-            data = ''
-            for data_item_index, data_item in \
-                    enumerate(data_set.data_item_structures):
-                if not data_item.optional or not ignore_optional_vars:
-                    if data_item.name == 'aux':
-                        data_index = self._process_aux(arr_line, arr_line_len,
-                                                       data_item, data_index,
-                                                       var_index)
-                    # optional mname data items are only specified if the
-                    # package is part of a model
-                    elif not data_item.optional or \
-                            data_item.name[0:5] != 'mname' or \
-                            not storage.in_model:
-                        if data_item.type == DatumType.keyword:
-                            data_index += 1
-                            simple_line = False
-                        elif data_item.type == DatumType.record:
-                            # this is a record within a record, recurse into
-                            # _load_line to load it
-                            data_index = self._load_line(arr_line, line_num,
-                                                         data_loaded,
-                                                         build_type_list,
-                                                         storage,
-                                                         data_index,
-                                                         data_item)[0]
-                            simple_line = False
-                        elif data_item.name != 'boundname' or \
-                                self._data_dimensions.package_dim.boundnames():
-                            if data_item.optional and data == '#':
-                                # comment mark found and expecting optional
-                                # data_item, we are done
-                                break
-                            if data_index >= arr_line_len and data_item.optional:
-                                break
-                            more_data_expected = True
-                            unknown_repeats = False
-                            repeat_count = 0
-                            while more_data_expected or unknown_repeats:
-                                if data_index >= arr_line_len:
-                                    if data_item.optional or unknown_repeats:
-                                        break
-                                    elif self.structure.num_optional >= \
-                                            len(data_set.data_item_structures)\
-                                            - data_item_index:
-                                        # there are enough optional variables
-                                        # to account for the lack of data
-                                        # reload line with all optional
-                                        # variables ignored
-                                        self._data_line = org_data_line
-                                        return self._load_line(arr_line,
-                                                               line_num,
-                                                               data_loaded,
-                                                               build_type_list,
-                                                               storage,
-                                                               data_index_start,
-                                                               data_set, True)
-                                    else:
-                                        comment = 'Not enough data provided ' \
-                                                  'for {}. Data for required ' \
-                                                  'data item "{}" not ' \
-                                                  'found'.format(self.
-                                                                 structure.
-                                                                 name,
-                                                                 data_item.
-                                                                 name)
-                                        type_, value_, \
-                                        traceback_ = sys.exc_info()
-                                        raise MFDataException(
-                                            self.structure.get_model(),
-                                            self.structure.get_package(),
-                                            self._path,
-                                            'loading data list from '
-                                            'package file',
-                                            self.structure.name,
-                                            inspect.stack()[0][3], type_,
-                                            value_, traceback_, comment,
-                                            self._simulation_data.debug)
+    def plot(self, key=None, names=None, filename_base=None,
+             file_extension=None, mflay=None, **kwargs):
+        """
+        Plot boundary condition (MfList) data
 
-                                data = arr_line[data_index]
-                                repeat_count += 1
-                                if data_item.type == DatumType.keystring:
-                                    simple_line = False
-                                    if repeat_count <= 1:  # only process the
-                                        # keyword on the first repeat find
-                                        #  data item associated with correct
-                                        # keystring
-                                        name_data = data.lower()
-                                        if name_data not in \
-                                                data_item.keystring_dict:
-                                            name_data = '{}record'.format(
-                                                    name_data)
-                                            if name_data not in \
-                                                    data_item.keystring_dict:
-                                                # data does not match any
-                                                # expected keywords
-                                                print('WARNING: Failed to '
-                                                      'process line {}.  '
-                                                      'Line does not match '
-                                                      'expected keystring '
-                                                      '{}'.format(
-                                                            ' '.join(arr_line),
-                                                            data_item.name))
-                                                break
-                                        data_item_ks = \
-                                            data_item.keystring_dict[
-                                            name_data]
-                                        assert(data_item_ks != 0)
+        Parameters
+        ----------
+        key : str
+            MfList dictionary key. (default is None)
+        names : list
+            List of names for figure titles. (default is None)
+        filename_base : str
+            Base file name that will be used to automatically generate file
+            names for output image files. Plots will be exported as image
+            files if file_name_base is not None. (default is None)
+        file_extension : str
+            Valid matplotlib.pyplot file extension for savefig(). Only used
+            if filename_base is not None. (default is 'png')
+        mflay : int
+            MODFLOW zero-based layer number to return.  If None, then all
+            all layers will be included. (default is None)
+        **kwargs : dict
+            axes : list of matplotlib.pyplot.axis
+                List of matplotlib.pyplot.axis that will be used to plot
+                data for each layer. If axes=None axes will be generated.
+                (default is None)
+            pcolor : bool
+                Boolean used to determine if matplotlib.pyplot.pcolormesh
+                plot will be plotted. (default is True)
+            colorbar : bool
+                Boolean used to determine if a color bar will be added to
+                the matplotlib.pyplot.pcolormesh. Only used if pcolor=True.
+                (default is False)
+            inactive : bool
+                Boolean used to determine if a black overlay in inactive
+                cells in a layer will be displayed. (default is True)
+            contour : bool
+                Boolean used to determine if matplotlib.pyplot.contour
+                plot will be plotted. (default is False)
+            clabel : bool
+                Boolean used to determine if matplotlib.pyplot.clabel
+                will be plotted. Only used if contour=True. (default is False)
+            grid : bool
+                Boolean used to determine if the model grid will be plotted
+                on the figure. (default is False)
+            masked_values : list
+                List of unique values to be excluded from the plot.
 
-                                        # keyword is always implied in a
-                                        # keystring and should be stored,
-                                        # add a string data_item for the
-                                        # keyword
-                                        if data_item.name in \
-                                                self._temp_dict:
-                                            # used cached data item for
-                                            # performance
-                                            keyword_data_item = \
-                                                self._temp_dict[data_item.name]
-                                        else:
-                                            keyword_data_item = \
-                                                deepcopy(data_item)
-                                            keyword_data_item.type = \
-                                                DatumType.string
-                                            self._temp_dict[data_item.name] \
-                                                = keyword_data_item
-                                        data_index, more_data_expected, \
-                                            unknown_repeats = \
-                                            self._append_data(
-                                                    keyword_data_item,
-                                                    arr_line,
-                                                    arr_line_len,
-                                                    data_index,
-                                                    var_index,
-                                                    repeat_count)
-                                    if isinstance(data_item_ks,
-                                        mfstructure.MFDataStructure):
-                                        dis = \
-                                        data_item_ks.data_item_structures
-                                        for ks_data_item in dis:
-                                            if ks_data_item.type != \
-                                                    DatumType.keyword \
-                                                    and data_index < \
-                                                            arr_line_len:
-                                                # data item contains additional
-                                                # information
-                                                data_index,\
-                                                more_data_expected, \
-                                                unknown_repeats = \
-                                                    self._append_data(
-                                                        ks_data_item,
-                                                        arr_line,
-                                                        arr_line_len,
-                                                        data_index,
-                                                        var_index,
-                                                        repeat_count)
-                                        while data_index < arr_line_len:
-                                            try:
-                                                # append remaining data
-                                                # (temporary fix)
-                                                data_index, \
-                                                more_data_expected, \
-                                                unknown_repeats = \
-                                                    self._append_data(
-                                                        ks_data_item,
-                                                        arr_line,
-                                                        arr_line_len,
-                                                        data_index,
-                                                        var_index,
-                                                        repeat_count)
-                                            except MFDataException:
-                                                break
-                                    else:
-                                        if data_item_ks.type != \
-                                                DatumType.keyword:
-                                            data_index, \
-                                            more_data_expected, \
-                                            unknown_repeats = \
-                                            self._append_data(data_item_ks,
-                                                              arr_line,
-                                                              arr_line_len,
-                                                              data_index,
-                                                              var_index,
-                                                              repeat_count)
-                                        else:
-                                            # append empty data as a placeholder.
-                                            # this is necessarily to keep the
-                                            # recarray a consistent shape
-                                            self._data_line = \
-                                                self._data_line + (None,)
-                                            data_index += 1
-                                else:
-                                    if data_item.tagged and repeat_count == 1:
-                                        # data item tagged, include data item
-                                        # name as a keyword
-                                        di_type = data_item.type
-                                        data_item.type = DatumType.keyword
-                                        data_index, more_data_expected, \
-                                            unknown_repeats = \
-                                            self._append_data(data_item,
-                                                              arr_line,
-                                                              arr_line_len,
-                                                              data_index,
-                                                              var_index,
-                                                              repeat_count)
-                                        data_item.type = di_type
-                                    data_index, more_data_expected, \
-                                        unknown_repeats = \
-                                        self._append_data(data_item,
-                                                          arr_line,
-                                                          arr_line_len,
-                                                          data_index,
-                                                          var_index,
-                                                          repeat_count)
-                                if more_data_expected is None:
-                                    # indeterminate amount of data expected.
-                                    # keep reading data until eoln
-                                    more_data_expected = \
-                                        (data_index < arr_line_len)
-                                simple_line = simple_line and \
-                                        not unknown_repeats and \
-                                        len(data_item.shape) == 0
-                    var_index += 1
+        Returns
+        ----------
+        out : list
+            Empty list is returned if filename_base is not None. Otherwise
+            a list of matplotlib.pyplot.axis is returned.
+        """
+        from flopy.plot import PlotUtilities
 
-            # populate unused optional variables with None type
-            for data_item in data_set.data_item_structures[var_index:]:
-                simple_line = False
-                if data_item.name == 'aux':
-                    self._process_aux(arr_line, arr_line_len, data_item,
-                                      data_index, var_index)
-                elif data_item.name != 'boundname' or \
-                        self._data_dimensions.package_dim.boundnames():
-                    data_index, more_data_expected, \
-                        unknown_repeats = self._append_data(data_item, None, 0,
-                                                            data_index,
-                                                            var_index, 1)
+        if not self.plotable:
+            raise TypeError("Simulation level packages are not plotable")
 
-            # only do final processing on outer-most record
-            if data_index_start == 0:
-                # if more pieces exist
-                if arr_line_len > data_index + 1:
-                    # FEATURE: Keep number of white space characters used in
-                    # comments section
-                    storage.comments[line_num] = mfdata.MFComment(
-                            ' '.join(arr_line[data_index+1:]), self._path,
-                            self._simulation_data, line_num)
-                data_loaded.append(self._data_line)
-        return data_index, simple_line
+        if 'cellid' not in self.dtype.names:
+            return
 
-    def _process_aux(self, arr_line, arr_line_len, data_item, data_index,
-                     var_index):
-        aux_var_names = self._data_dimensions.package_dim.get_aux_variables()
-        if aux_var_names is not None:
-            for var_name in aux_var_names[0]:
-                if var_name.lower() != 'auxiliary':
-                    if data_index >= arr_line_len:
-                        # store placeholder None
-                        data_index, more_data_expected, unknown_repeats = \
-                            self._append_data(data_item, None, 0, data_index,
-                                              var_index, 1)
-                    else:
-                        # read in aux variables
-                        data_index, more_data_expected, unknown_repeats = \
-                            self._append_data(data_item, arr_line,
-                                              arr_line_len, data_index,
-                                              var_index, 0)
-        return data_index
-
-    def _append_data(self, data_item, arr_line, arr_line_len, data_index,
-                     var_index, repeat_count):
-        # append to a 2-D list which will later be converted to a numpy
-        # rec array
-        storge = self._get_storage_obj()
-        self._last_line_info.append([])
-        if data_item.is_cellid or (data_item.possible_cellid and
-                                   self._validate_cellid(arr_line,
-                                                         data_index)):
-            if self._data_dimensions is None:
-                comment = 'CellID field specified in for data ' \
-                          '"{}" field "{}" which does not contain a model '\
-                          'grid. This could be due to a problem with ' \
-                          'the flopy definition files. Please get the ' \
-                          'latest flopy definition files' \
-                          '.'.format(self.structure.name,
-                                     data_item.name)
-                type_, value_, traceback_ = sys.exc_info()
-                raise MFDataException(self.structure.get_model(),
-                                      self.structure.get_package(), self._path,
-                                      'loading data list from package file',
-                                      self.structure.name,
-                                      inspect.stack()[0][3], type_, value_,
-                                      traceback_, comment,
-                                      self._simulation_data.debug)
-            # read in the entire cellid
-            model_grid = self._data_dimensions.get_model_grid()
-            cellid_size = model_grid.get_num_spatial_coordinates()
-            cellid_tuple = ()
-            if not mfdatautil.DatumUtil.is_int(arr_line[data_index]) and \
-                    arr_line[data_index].lower() == 'none':
-                # special case where cellid is 'none', store as tuple of
-                # 'none's
-                cellid_tuple = ('none',) * cellid_size
-                self._last_line_info[-1].append([data_index, 'string',
-                                                 cellid_size])
-                new_index = data_index + 1
-            else:
-                # handle regular cellid
-                if cellid_size + data_index > arr_line_len:
-                    comment = 'Not enough data found when reading cell ID ' \
-                              'in data "{}" field "{}". Expected {} items ' \
-                              'and found {} items'\
-                              '.'.format(self.structure.name,
-                                         data_item.name, cellid_size,
-                                         arr_line_len - data_index)
-                    type_, value_, traceback_ = sys.exc_info()
-                    raise MFDataException(self.structure.get_model(),
-                                          self.structure.get_package(),
-                                          self._path,
-                                          'loading data list from package '
-                                          'file', self.structure.name,
-                                          inspect.stack()[0][3], type_, value_,
-                                          traceback_, comment,
-                                          self._simulation_data.debug)
-                for index in range(data_index, cellid_size + data_index):
-                    if not mfdatautil.DatumUtil.is_int(arr_line[index]) or \
-                            int(arr_line[index]) < 0:
-                        comment = 'Expected a integer or cell ID in ' \
-                                  'data "{}" field "{}".  Found {} ' \
-                                  'in line "{}"' \
-                                  '. '.format(self.structure.name,
-                                              data_item.name, arr_line[index],
-                                              arr_line)
-                        type_, value_, traceback_ = sys.exc_info()
-                        raise MFDataException(self.structure.get_model(),
-                                              self.structure.get_package(),
-                                              self._path,
-                                              'loading data list from package '
-                                              'file', self.structure.name,
-                                              inspect.stack()[0][3], type_,
-                                              value_,
-                                              traceback_, comment,
-                                              self._simulation_data.debug)
-
-                    data_converted = storge.convert_data(arr_line[index],
-                                                         data_item.type)
-                    cellid_tuple = cellid_tuple + (int(data_converted) - 1,)
-                    self._last_line_info[-1].append([index, 'integer',
-                                                     cellid_size])
-                new_index = data_index + cellid_size
-            self._data_line = self._data_line + (cellid_tuple,)
-            if data_item.shape is not None and len(data_item.shape) > 0 and \
-                    data_item.shape[0] == 'ncelldim':
-                # shape is the coordinate shape, which has already been read
-                more_data_expected = False
-                unknown_repeats = False
-            else:
-                more_data_expected, unknown_repeats = \
-                    self._resolve_shape(data_item, repeat_count)
-            return new_index, more_data_expected, unknown_repeats
-        else:
-            if arr_line is None:
-                data_converted = None
-                self._last_line_info[-1].append([data_index, None, 0])
-            else:
-                if arr_line[data_index].lower() in \
-                        self._data_dimensions.package_dim.get_tsnames():
-                    # references a time series, store as is
-                    data_converted = arr_line[data_index].lower()
-                    # override recarray data type to support writing
-                    # string values
-                    storge.override_data_type(var_index, object)
-                    self._last_line_info[-1].append([data_index, 'string', 0])
-                else:
-                    data_converted = storge.convert_data(arr_line[data_index],
-                                                         data_item.type,
-                                                         data_item)
-                    self._last_line_info[-1].append([data_index,
-                                                     data_item.type, 0])
-            self._data_line = self._data_line + (data_converted,)
-            more_data_expected, unknown_repeats = \
-                self._resolve_shape(data_item, repeat_count)
-            return data_index + 1, more_data_expected, unknown_repeats
-
-    def _resolve_shape(self, data_item, repeat_count, cellid_size=None):
-        try:
-            resolved_shape, shape_rule = \
-                self._data_dimensions.get_data_shape(data_item, self.structure,
-                                                     self._data_line,
-                                                     repeating_key=
-                                                     self._current_key)
-        except StructException as se:
-            comment = 'Unable to resolve shape for data "{}" field "{}". This ' \
-                      'may be a problem with your flopy install' \
-                      '. '.format(self.structure.name,
-                                  data_item.name)
-            type_, value_, traceback_ = sys.exc_info()
-            raise MFDataException(self.structure.get_model(),
-                                  self.structure.get_package(), self._path,
-                                  'loading data list from package file',
-                                  self.structure.name, inspect.stack()[0][3],
-                                  type_, value_, traceback_, comment,
-                                  self._simulation_data.debug, se)
-
-        if cellid_size is not None:
-            data_item.remove_cellid(resolved_shape, cellid_size)
-
-        if len(resolved_shape) == 1:
-            if repeat_count < resolved_shape[0]:
-                return True, shape_rule is not None
-            elif resolved_shape[0] == -9999:
-                # repeating unknown number of times in 1-D array
-                return False, True
-        return False, False
-
-    def _validate_cellid(self, arr_line, data_index):
-        if not self.structure.model_data:
-            # not model data so this is not a cell id
-            return False
-        if arr_line is None:
-            return False
-        model_grid = self._data_dimensions.get_model_grid()
-        cellid_size = model_grid.get_num_spatial_coordinates()
-        if cellid_size + data_index > len(arr_line):
-            return False
-        for index in range(data_index, cellid_size + data_index):
-            if not mfdatautil.DatumUtil.is_int(arr_line[index]):
-                return False
-            if int(arr_line[index]) <= 0:
-                return False
-        return True
+        PlotUtilities._plot_mflist_helper(mflist=self, key=key, kper=None,
+                                          names=names, filename_base=None,
+                                          file_extension=None, mflay=None,
+                                          **kwargs )
 
 
-class MFTransientList(MFList, mfdata.MFTransient):
+class MFTransientList(MFList, mfdata.MFTransient, DataListInterface):
     """
     Provides an interface for the user to access and update MODFLOW transient
     list data.
@@ -1257,14 +795,11 @@ class MFTransientList(MFList, mfdata.MFTransient):
         retrieved using the key "transient_key"
     add_one :(transient_key : int)
         Adds one to the data stored at key "transient_key"
-    get_data : (layer_num : int, key : int) : ndarray
-        Returns the data associated with layer "layer_num" during time "key".
-        If "layer_num" is None, returns all data for time "key".
-    set_data : (data : ndarray/list, multiplier : float, layer_num : int,
-                key : int)
-        Sets the contents of the data at layer "layer_num" and time "key" to
-        "data" with multiplier "multiplier". For unlayered data do not pass
-        in "layer_num".
+    get_data : (key : int) : ndarray
+        Returns the data during time "key".
+    set_data : (data : ndarray/list, multiplier : float, key : int)
+        Sets the contents of the data at time "key" to "data" with
+        multiplier "multiplier".
     load : (first_line : string, file_handle : file descriptor,
             block_header : MFBlockHeader, pre_data_comments : MFComment) :
             tuple (bool, string)
@@ -1272,9 +807,8 @@ class MFTransientList(MFList, mfdata.MFTransient):
         file_handle which is pointing to the second line of data.  Returns a
         tuple with the first item indicating whether all data was read
         and the second item being the last line of text read from the file.
-    get_file_entry : (layer : int, key : int) : string
-        Returns a string containing the data in layer "layer" at time "key".
-        For unlayered data do not pass in "layer".
+    get_file_entry : (key : int) : string
+        Returns a string containing the data at time "key".
     append_list_as_record : (data : list, key : int)
         Appends the list "data" as a single record in this list's recarray at
         time "key".  Assumes "data" has the correct dimensions.
@@ -1293,27 +827,136 @@ class MFTransientList(MFList, mfdata.MFTransient):
 
 
     """
-    def __init__(self, sim_data, structure, enable=True, path=None,
-                 dimensions=None):
+    def __init__(self, sim_data, model_or_sim, structure, enable=True, path=None,
+                 dimensions=None, package=None):
         super(MFTransientList, self).__init__(sim_data=sim_data,
+                                              model_or_sim=model_or_sim,
                                               structure=structure,
                                               data=None,
                                               enable=enable,
                                               path=path,
-                                              dimensions=dimensions)
+                                              dimensions=dimensions,
+                                              package=package)
         self._transient_setup(self._data_storage)
         self.repeating = True
 
+    @property
+    def data_type(self):
+        return DataType.transientlist
+
+    @property
+    def dtype(self):
+        data = self.get_data()
+        if len(data) > 0:
+            return data[0].dtype
+        else:
+            return None
+
+    @property
+    def masked_4D_arrays(self):
+        model_grid = self._data_dimensions.get_model_grid()
+        nper = self._data_dimensions.package_dim.model_dim[0].simulation_time \
+            .get_num_stress_periods()
+        # get the first kper
+        arrays = self.to_array(kper=0, mask=True)
+
+        if arrays is not None:
+            # initialize these big arrays
+            if model_grid.grid_type() == DiscretizationType.DIS:
+                m4ds = {}
+                for name, array in arrays.items():
+                    m4d = np.zeros((nper, model_grid.num_layers,
+                                    model_grid.num_rows, model_grid.num_columns))
+                    m4d[0, :, :, :] = array
+                    m4ds[name] = m4d
+                for kper in range(1, nper):
+                    arrays = self.to_array(kper=kper, mask=True)
+                    for name, array in arrays.items():
+                        m4ds[name][kper, :, :, :] = array
+                return m4ds
+            else:
+                m3ds = {}
+                for name, array in arrays.items():
+                    m3d = np.zeros((nper, model_grid.num_layers,
+                                    model_grid.num_cells_per_layer()))
+                    m3d[0, :, :] = array
+                    m3ds[name] = m3d
+                for kper in range(1, nper):
+                    arrays = self.to_array(kper=kper, mask=True)
+                    for name, array in arrays.items():
+                        m3ds[name][kper, :, :] = array
+                return m3ds
+
+    def masked_4D_arrays_itr(self):
+        model_grid = self._data_dimensions.get_model_grid()
+        nper = self._data_dimensions.package_dim.model_dim[0].simulation_time \
+            .get_num_stress_periods()
+        # get the first kper
+        arrays = self.to_array(kper=0, mask=True)
+
+        if arrays is not None:
+            # initialize these big arrays
+            for name, array in arrays.items():
+                if model_grid.grid_type() == DiscretizationType.DIS:
+                    m4d = np.zeros((nper, model_grid.num_layers(),
+                                    model_grid.num_rows(), model_grid.num_columns()))
+                    m4d[0, :, :, :] = array
+                    for kper in range(1, nper):
+                        arrays = self.to_array(kper=kper, mask=True)
+                        for tname, array in arrays.items():
+                            if tname == name:
+                                m4d[kper, :, :, :] = array
+                    yield name, m4d
+                else:
+                    m3d = np.zeros((nper, model_grid.num_layers(),
+                                    model_grid.num_cells_per_layer()))
+                    m3d[0, :, :] = array
+                    for kper in range(1, nper):
+                        arrays = self.to_array(kper=kper, mask=True)
+                        for tname, array in arrays.items():
+                            if tname == name:
+                                m3d[kper, :, :] = array
+                    yield name, m3d
+
+    def to_array(self, kper=0, mask=False):
+        return super(MFTransientList, self).to_array(kper, mask)
+
     def add_transient_key(self, transient_key):
         super(MFTransientList, self).add_transient_key(transient_key)
-        self._data_storage[transient_key] = super(MFTransientList,
-                                                  self)._new_storage()
+        if isinstance(transient_key, int):
+            stress_period = transient_key
+        else:
+            stress_period = 1
+        self._data_storage[transient_key] = \
+            super(MFTransientList, self)._new_storage(stress_period)
 
-    def get_data(self, key=None, apply_mult=False):
-        if key is None:
-            key = self._current_key
-        self.get_data_prep(key)
-        return super(MFTransientList, self).get_data(apply_mult=apply_mult)
+    def get_data(self, key=None, apply_mult=False, **kwargs):
+        if self._data_storage is not None and len(self._data_storage) > 0:
+            if key is None:
+                if 'array' in kwargs:
+                    output = []
+                    sim_time = self._data_dimensions.package_dim.model_dim[
+                        0].simulation_time
+                    num_sp = sim_time.get_num_stress_periods()
+                    for sp in range(0, num_sp):
+                        if sp in self._data_storage:
+                            self.get_data_prep(sp)
+                            output.append(super(MFTransientList, self).get_data(
+                                apply_mult=apply_mult))
+                        else:
+                            output.append(None)
+                    return output
+                else:
+                    output = {}
+                    for key in self._data_storage.keys():
+                        self.get_data_prep(key)
+                        output[key] = super(MFTransientList, self).get_data(
+                            apply_mult=apply_mult)
+                    return output
+            self.get_data_prep(key)
+            return super(MFTransientList, self).get_data(apply_mult=apply_mult)
+        else:
+            return None
 
     def set_data(self, data, key=None, autofill=False):
         if (isinstance(data, dict) or isinstance(data, OrderedDict)) and \
@@ -1333,7 +976,7 @@ class MFTransientList(MFList, mfdata.MFTransient):
                 else:
                     key = 0
             self._set_data_prep(data, key)
-            super(MFTransientList, self).set_data(data)
+            super(MFTransientList, self).set_data(data, autofill)
 
     def get_file_entry(self, key=0,
                        ext_file_action=ExtFileAction.copy_relative_paths):
@@ -1355,7 +998,7 @@ class MFTransientList(MFList, mfdata.MFTransient):
         self._update_record_prep(key)
         super(MFTransientList, self).update_record(record, key_index)
 
-    def _new_storage(self):
+    def _new_storage(self, stress_period=0):
         return OrderedDict()
 
     def _get_storage_obj(self):
@@ -1363,6 +1006,78 @@ class MFTransientList(MFList, mfdata.MFTransient):
                 self._current_key not in self._data_storage:
             return None
         return self._data_storage[self._current_key]
+
+    def plot(self, key=None, names=None, kper=0,
+             filename_base=None, file_extension=None, mflay=None,
+             **kwargs):
+        """
+        Plot stress period boundary condition (MfList) data for a specified
+        stress period
+
+        Parameters
+        ----------
+        key : str
+            MfList dictionary key. (default is None)
+        names : list
+            List of names for figure titles. (default is None)
+        kper : int
+            MODFLOW zero-based stress period number to return. (default is zero)
+        filename_base : str
+            Base file name that will be used to automatically generate file
+            names for output image files. Plots will be exported as image
+            files if file_name_base is not None. (default is None)
+        file_extension : str
+            Valid matplotlib.pyplot file extension for savefig(). Only used
+            if filename_base is not None. (default is 'png')
+        mflay : int
+            MODFLOW zero-based layer number to return.  If None, then all
+            all layers will be included. (default is None)
+        **kwargs : dict
+            axes : list of matplotlib.pyplot.axis
+                List of matplotlib.pyplot.axis that will be used to plot
+                data for each layer. If axes=None axes will be generated.
+                (default is None)
+            pcolor : bool
+                Boolean used to determine if matplotlib.pyplot.pcolormesh
+                plot will be plotted. (default is True)
+            colorbar : bool
+                Boolean used to determine if a color bar will be added to
+                the matplotlib.pyplot.pcolormesh. Only used if pcolor=True.
+                (default is False)
+            inactive : bool
+                Boolean used to determine if a black overlay in inactive
+                cells in a layer will be displayed. (default is True)
+            contour : bool
+                Boolean used to determine if matplotlib.pyplot.contour
+                plot will be plotted. (default is False)
+            clabel : bool
+                Boolean used to determine if matplotlib.pyplot.clabel
+                will be plotted. Only used if contour=True. (default is False)
+            grid : bool
+                Boolean used to determine if the model grid will be plotted
+                on the figure. (default is False)
+            masked_values : list
+                List of unique values to be excluded from the plot.
+
+        Returns
+        ----------
+        out : list
+            Empty list is returned if filename_base is not None. Otherwise
+            a list of matplotlib.pyplot.axis is returned.
+        """
+        from flopy.plot import PlotUtilities
+
+        if not self.plotable:
+            raise TypeError("Simulation level packages are not plotable")
+
+        if 'cellid' not in self.dtype.names:
+            return
+
+        axes = PlotUtilities._plot_mflist_helper(self, key=key, names=names,
+                                                 kper=kper, filename_base=filename_base,
+                                                 file_extension=file_extension, mflay=mflay,
+                                                 **kwargs)
+        return axes
 
 
 class MFMultipleList(MFTransientList):
@@ -1397,10 +1112,16 @@ class MFMultipleList(MFTransientList):
 
 
     """
-    def __init__(self, sim_data, structure, enable=True, path=None,
-                 dimensions=None):
+    def __init__(self, sim_data, model_or_sim, structure, enable=True,
+                 path=None, dimensions=None, package=None):
         super(MFMultipleList, self).__init__(sim_data=sim_data,
-                                            structure=structure,
-                                            enable=enable,
-                                            path=path,
-                                            dimensions=dimensions)
+                                             model_or_sim=model_or_sim,
+                                             structure=structure,
+                                             enable=enable,
+                                             path=path,
+                                             dimensions=dimensions,
+                                             package=package)
+
+    def get_data(self, key=None, apply_mult=False, **kwargs):
+        return super(MFMultipleList, self).get_data(key=key,
+                                                    apply_mult=apply_mult)

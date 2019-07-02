@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGwflak(mfpackage.MFPackage):
@@ -58,17 +58,16 @@ class ModflowGwflak(mfpackage.MFPackage):
     budget_filerecord : [budgetfile]
         * budgetfile (string) name of the binary output file to write budget
           information.
-    ts_filerecord : [ts6_filename]
-        * ts6_filename (string) defines a time-series file defining time series
-          that can be used to assign time-varying values. See the "Time-
-          Variable Input" section for instructions on using the time-series
-          capability.
-    obs_filerecord : [obs6_filename]
-        * obs6_filename (string) name of input file to define observations for
-          the LAK package. See the "Observation utility" section for
-          instructions for preparing observation input files. Table
-          reftable:obstype lists observation type(s) supported by the LAK
-          package.
+    timeseries : {varname:data} or timeseries data
+        * Contains data for the ts package. Data can be stored in a dictionary
+          containing data for the ts package with variable names as keys and
+          package data as values. Data just for the timeseries variable is also
+          acceptable. See ts package documentation for more information.
+    observations : {varname:data} or continuous data
+        * Contains data for the obs package. Data can be stored in a dictionary
+          containing data for the obs package with variable names as keys and
+          package data as values. Data just for the observations variable is
+          also acceptable. See obs package documentation for more information.
     mover : boolean
         * mover (boolean) keyword to indicate that this instance of the LAK
           Package can be used with the Water Mover (MVR) Package. When the
@@ -168,7 +167,7 @@ class ModflowGwflak(mfpackage.MFPackage):
           connection conductance calculations use the hydraulic conductivity
           corresponding to the :math:`K_{33}` tensor component defined for
           CELLID in the NPF package. Embedded lakes can only be connected to a
-          single cell (NLAKCONN = 1) and there must be a lake table associated
+          single cell (NLAKECONN = 1) and there must be a lake table associated
           with each embedded lake.
         * bedleak (double) character string or real value that defines the bed
           leakance for the lake-GWF connection. BEDLEAK must be greater than or
@@ -262,7 +261,7 @@ class ModflowGwflak(mfpackage.MFPackage):
           greater than zero and less than or equal to NLAKES.
         * laksetting (keystring) line of information that is parsed into a
           keyword and values. Keyword values that can be used to start the
-          LAKSETTING string include: STATUS, STAGE, STAGE, EVAPORATION,
+          LAKSETTING string include: STATUS, STAGE, RAINFALL, EVAPORATION,
           RUNOFFON, WITHDRAWAL, and AUXILIARY.
             status : [string]
                 * status (string) keyword option to define lake status. STATUS
@@ -357,14 +356,13 @@ class ModflowGwflak(mfpackage.MFPackage):
                   obtained from a time series by entering the time-series name
                   in place of a numeric value.
             rough : [string]
-                * rough (string) real or character value that defines the width
-                  of the lake outlet. A specified WIDTH value is only used for
-                  active lakes if COUTTYPE for lake outlet OUTLETNO is not
-                  SPECIFIED. If the Options block includes a TIMESERIESFILE
-                  entry (see the "Time-Variable Input" section), values can be
-                  obtained from a time series by entering the time-series name
-                  in place of a numeric value.
-    fname : String
+                * rough (string) real value that defines the roughness
+                  coefficient for the lake outlet. Any value can be specified
+                  if COUTTYPE is not MANNING. If the Options block includes a
+                  TIMESERIESFILE entry (see the "Time-Variable Input" section),
+                  values can be obtained from a time series by entering the
+                  time-series name in place of a numeric value.
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -374,289 +372,299 @@ class ModflowGwflak(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    auxiliary = ListTemplateGenerator(('gwf6', 'lak', 'options', 
+    auxiliary = ListTemplateGenerator(('gwf6', 'lak', 'options',
                                        'auxiliary'))
-    stage_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options', 
+    stage_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options',
                                               'stage_filerecord'))
-    budget_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options', 
+    budget_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options',
                                                'budget_filerecord'))
-    ts_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options', 
+    ts_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options',
                                            'ts_filerecord'))
-    obs_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options', 
+    obs_filerecord = ListTemplateGenerator(('gwf6', 'lak', 'options',
                                             'obs_filerecord'))
-    packagedata = ListTemplateGenerator(('gwf6', 'lak', 'packagedata', 
+    packagedata = ListTemplateGenerator(('gwf6', 'lak', 'packagedata',
                                          'packagedata'))
-    connectiondata = ListTemplateGenerator(('gwf6', 'lak', 
-                                            'connectiondata', 
+    connectiondata = ListTemplateGenerator(('gwf6', 'lak',
+                                            'connectiondata',
                                             'connectiondata'))
     tables = ListTemplateGenerator(('gwf6', 'lak', 'tables', 'tables'))
-    outlets = ListTemplateGenerator(('gwf6', 'lak', 'outlets', 
+    outlets = ListTemplateGenerator(('gwf6', 'lak', 'outlets',
                                      'outlets'))
-    lakeperioddata = ListTemplateGenerator(('gwf6', 'lak', 'period', 
+    lakeperioddata = ListTemplateGenerator(('gwf6', 'lak', 'period',
                                             'lakeperioddata'))
-    outletperioddata = ListTemplateGenerator(('gwf6', 'lak', 'period', 
+    outletperioddata = ListTemplateGenerator(('gwf6', 'lak', 'period',
                                               'outletperioddata'))
     package_abbr = "gwflak"
-    package_type = "lak"
+    _package_type = "lak"
     dfn_file_name = "gwf-lak.dfn"
 
-    dfn = [["block options", "name auxiliary", "type string", 
+    dfn = [["block options", "name auxiliary", "type string",
             "shape (naux)", "reader urword", "optional true"],
-           ["block options", "name boundnames", "type keyword", "shape", 
+           ["block options", "name boundnames", "type keyword", "shape",
             "reader urword", "optional true"],
-           ["block options", "name print_input", "type keyword", 
+           ["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_stage", "type keyword", 
+           ["block options", "name print_stage", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_flows", "type keyword", 
+           ["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name stage_filerecord", 
-            "type record stage fileout stagefile", "shape", "reader urword", 
+           ["block options", "name stage_filerecord",
+            "type record stage fileout stagefile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name stage", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name stage", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name stagefile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name stagefile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name budget_filerecord", 
-            "type record budget fileout budgetfile", "shape", "reader urword", 
+           ["block options", "name budget_filerecord",
+            "type record budget fileout budgetfile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name budget", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name budget", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name fileout", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name fileout", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name budgetfile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name budgetfile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name ts_filerecord", 
-            "type record ts6 filein ts6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name ts6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name ts_filerecord",
+            "type record ts6 filein ts6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package ts",
+            "construct_data timeseries", "parameter_name timeseries"],
+           ["block options", "name ts6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name ts6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block options", "name ts6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block options", "name obs_filerecord", 
-            "type record obs6 filein obs6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name obs6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name obs_filerecord",
+            "type record obs6 filein obs6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package obs",
+            "construct_data continuous", "parameter_name observations"],
+           ["block options", "name obs6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name obs6_filename", "type string", 
-            "preserve_case true", "in_record true", "tagged false", 
+           ["block options", "name obs6_filename", "type string",
+            "preserve_case true", "in_record true", "tagged false",
             "reader urword", "optional false"],
-           ["block options", "name mover", "type keyword", "tagged true", 
+           ["block options", "name mover", "type keyword", "tagged true",
             "reader urword", "optional true"],
-           ["block options", "name surfdep", "type double precision", 
+           ["block options", "name surfdep", "type double precision",
             "reader urword", "optional true"],
-           ["block options", "name time_conversion", 
+           ["block options", "name time_conversion",
             "type double precision", "reader urword", "optional true"],
-           ["block options", "name length_conversion", 
+           ["block options", "name length_conversion",
             "type double precision", "reader urword", "optional true"],
-           ["block dimensions", "name nlakes", "type integer", 
+           ["block dimensions", "name nlakes", "type integer",
             "reader urword", "optional false"],
-           ["block dimensions", "name noutlets", "type integer", 
+           ["block dimensions", "name noutlets", "type integer",
             "reader urword", "optional false"],
-           ["block dimensions", "name ntables", "type integer", 
+           ["block dimensions", "name ntables", "type integer",
             "reader urword", "optional false"],
-           ["block packagedata", "name packagedata", 
-            "type recarray lakeno strt nlakeconn aux boundname", 
+           ["block packagedata", "name packagedata",
+            "type recarray lakeno strt nlakeconn aux boundname",
             "shape (maxbound)", "reader urword"],
-           ["block packagedata", "name lakeno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name lakeno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block packagedata", "name strt", "type double precision", 
+           ["block packagedata", "name strt", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name nlakeconn", "type integer", "shape", 
+           ["block packagedata", "name nlakeconn", "type integer", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name aux", "type double precision", 
-            "in_record true", "tagged false", "shape (naux)", "reader urword", 
+           ["block packagedata", "name aux", "type double precision",
+            "in_record true", "tagged false", "shape (naux)", "reader urword",
             "time_series true", "optional true"],
-           ["block packagedata", "name boundname", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name boundname", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "optional true"],
-           ["block connectiondata", "name connectiondata", 
-            "type recarray lakeno iconn cellid claktype bedleak belev telev " 
-            "connlen connwidth", 
-            "shape (sum(nlakecon))", "reader urword"],
-           ["block connectiondata", "name lakeno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block connectiondata", "name connectiondata",
+            "type recarray lakeno iconn cellid claktype bedleak belev telev "
+            "connlen connwidth",
+            "shape (sum(nlakeconn))", "reader urword"],
+           ["block connectiondata", "name lakeno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block connectiondata", "name iconn", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block connectiondata", "name iconn", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block connectiondata", "name cellid", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block connectiondata", "name cellid", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block connectiondata", "name claktype", "type string", "shape", 
+           ["block connectiondata", "name claktype", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name bedleak", "type double precision", 
+           ["block connectiondata", "name bedleak", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name belev", "type double precision", 
+           ["block connectiondata", "name belev", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name telev", "type double precision", 
+           ["block connectiondata", "name telev", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name connlen", "type double precision", 
+           ["block connectiondata", "name connlen", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name connwidth", 
-            "type double precision", "shape", "tagged false", 
+           ["block connectiondata", "name connwidth",
+            "type double precision", "shape", "tagged false",
             "in_record true", "reader urword"],
-           ["block tables", "name tables", 
-            "type recarray lakeno tab6 filein tab6_filename", 
+           ["block tables", "name tables",
+            "type recarray lakeno tab6 filein tab6_filename",
             "shape (ntables)", "reader urword"],
-           ["block tables", "name lakeno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block tables", "name lakeno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block tables", "name tab6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block tables", "name tab6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block tables", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block tables", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block tables", "name tab6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block tables", "name tab6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block outlets", "name outlets", 
-            "type recarray outletno lakein lakeout couttype invert width " 
-            "rough slope", 
+           ["block outlets", "name outlets",
+            "type recarray outletno lakein lakeout couttype invert width "
+            "rough slope",
             "shape (noutlets)", "reader urword"],
-           ["block outlets", "name outletno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name outletno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block outlets", "name lakein", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name lakein", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block outlets", "name lakeout", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name lakeout", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block outlets", "name couttype", "type string", "shape", 
+           ["block outlets", "name couttype", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block outlets", "name invert", "type double precision", 
-            "shape", "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name invert", "type double precision",
+            "shape", "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block outlets", "name width", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name width", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block outlets", "name rough", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name rough", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block outlets", "name slope", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block outlets", "name slope", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name lakeperioddata", 
+           ["block period", "name lakeperioddata",
             "type recarray lakeno laksetting", "shape", "reader urword"],
-           ["block period", "name lakeno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name lakeno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name laksetting", 
-            "type keystring status stage rainfall evaporation runoff " 
-            "withdrawal auxiliaryrecord", 
+           ["block period", "name laksetting",
+            "type keystring status stage rainfall evaporation runoff "
+            "withdrawal auxiliaryrecord",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name status", "type string", "shape", 
+           ["block period", "name status", "type string", "shape",
             "tagged true", "in_record true", "reader urword"],
-           ["block period", "name stage", "type string", "shape", 
-            "tagged true", "in_record true", "time_series true", 
+           ["block period", "name stage", "type string", "shape",
+            "tagged true", "in_record true", "time_series true",
             "reader urword"],
-           ["block period", "name rainfall", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name rainfall", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name evaporation", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name evaporation", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name runoff", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name runoff", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name withdrawal", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name withdrawal", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name auxiliaryrecord", 
-            "type record auxiliary auxname auxval", "shape", "tagged", 
+           ["block period", "name auxiliaryrecord",
+            "type record auxiliary auxname auxval", "shape", "tagged",
             "in_record true", "reader urword"],
-           ["block period", "name auxiliary", "type keyword", "shape", 
+           ["block period", "name auxiliary", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name auxname", "type string", "shape", 
+           ["block period", "name auxname", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name auxval", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name auxval", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name outletperioddata", 
+           ["block period", "name outletperioddata",
             "type recarray outletno outletsetting", "shape", "reader urword"],
-           ["block period", "name outletno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name outletno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name outletsetting", 
-            "type keystring rate invert width slope rough", "shape", 
+           ["block period", "name outletsetting",
+            "type keystring rate invert width slope rough", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name rate", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name rate", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name invert", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name invert", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name rough", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name rough", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name width", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name width", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name slope", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name slope", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"]]
 
     def __init__(self, model, loading_package=False, auxiliary=None,
                  boundnames=None, print_input=None, print_stage=None,
                  print_flows=None, save_flows=None, stage_filerecord=None,
-                 budget_filerecord=None, ts_filerecord=None,
-                 obs_filerecord=None, mover=None, surfdep=None,
-                 time_conversion=None, length_conversion=None, nlakes=None,
-                 noutlets=None, ntables=None, packagedata=None,
-                 connectiondata=None, tables=None, outlets=None,
-                 lakeperioddata=None, outletperioddata=None, fname=None,
-                 pname=None, parent_file=None):
-        super(ModflowGwflak, self).__init__(model, "lak", fname, pname,
-                                            loading_package, parent_file)        
+                 budget_filerecord=None, timeseries=None, observations=None,
+                 mover=None, surfdep=None, time_conversion=None,
+                 length_conversion=None, nlakes=None, noutlets=None,
+                 ntables=None, packagedata=None, connectiondata=None,
+                 tables=None, outlets=None, lakeperioddata=None,
+                 outletperioddata=None, filename=None, pname=None,
+                 parent_file=None):
+        super(ModflowGwflak, self).__init__(model, "lak", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.auxiliary = self.build_mfdata("auxiliary",  auxiliary)
-        self.boundnames = self.build_mfdata("boundnames",  boundnames)
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_stage = self.build_mfdata("print_stage",  print_stage)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
-        self.stage_filerecord = self.build_mfdata("stage_filerecord", 
+        self.auxiliary = self.build_mfdata("auxiliary", auxiliary)
+        self.boundnames = self.build_mfdata("boundnames", boundnames)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_stage = self.build_mfdata("print_stage", print_stage)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
+        self.stage_filerecord = self.build_mfdata("stage_filerecord",
                                                   stage_filerecord)
-        self.budget_filerecord = self.build_mfdata("budget_filerecord", 
+        self.budget_filerecord = self.build_mfdata("budget_filerecord",
                                                    budget_filerecord)
-        self.ts_filerecord = self.build_mfdata("ts_filerecord",  ts_filerecord)
-        self.obs_filerecord = self.build_mfdata("obs_filerecord", 
-                                                obs_filerecord)
-        self.mover = self.build_mfdata("mover",  mover)
-        self.surfdep = self.build_mfdata("surfdep",  surfdep)
-        self.time_conversion = self.build_mfdata("time_conversion", 
+        self._ts_filerecord = self.build_mfdata("ts_filerecord",
+                                                None)
+        self._ts_package = self.build_child_package("ts", timeseries,
+                                                    "timeseries",
+                                                    self._ts_filerecord)
+        self._obs_filerecord = self.build_mfdata("obs_filerecord",
+                                                 None)
+        self._obs_package = self.build_child_package("obs", observations,
+                                                     "continuous",
+                                                     self._obs_filerecord)
+        self.mover = self.build_mfdata("mover", mover)
+        self.surfdep = self.build_mfdata("surfdep", surfdep)
+        self.time_conversion = self.build_mfdata("time_conversion",
                                                  time_conversion)
-        self.length_conversion = self.build_mfdata("length_conversion", 
+        self.length_conversion = self.build_mfdata("length_conversion",
                                                    length_conversion)
-        self.nlakes = self.build_mfdata("nlakes",  nlakes)
-        self.noutlets = self.build_mfdata("noutlets",  noutlets)
-        self.ntables = self.build_mfdata("ntables",  ntables)
-        self.packagedata = self.build_mfdata("packagedata",  packagedata)
-        self.connectiondata = self.build_mfdata("connectiondata", 
+        self.nlakes = self.build_mfdata("nlakes", nlakes)
+        self.noutlets = self.build_mfdata("noutlets", noutlets)
+        self.ntables = self.build_mfdata("ntables", ntables)
+        self.packagedata = self.build_mfdata("packagedata", packagedata)
+        self.connectiondata = self.build_mfdata("connectiondata",
                                                 connectiondata)
-        self.tables = self.build_mfdata("tables",  tables)
-        self.outlets = self.build_mfdata("outlets",  outlets)
-        self.lakeperioddata = self.build_mfdata("lakeperioddata", 
+        self.tables = self.build_mfdata("tables", tables)
+        self.outlets = self.build_mfdata("outlets", outlets)
+        self.lakeperioddata = self.build_mfdata("lakeperioddata",
                                                 lakeperioddata)
-        self.outletperioddata = self.build_mfdata("outletperioddata", 
+        self.outletperioddata = self.build_mfdata("outletperioddata",
                                                   outletperioddata)
+        self._init_complete = True

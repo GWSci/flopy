@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGwfhfb(mfpackage.MFPackage):
@@ -46,7 +46,7 @@ class ModflowGwfhfb(mfpackage.MFPackage):
           cells specified as containing the barrier. For example, if the value
           for HYDCHR was specified as -1.5, the conductance calculated for the
           two cells would be multiplied by 1.5.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -56,39 +56,40 @@ class ModflowGwfhfb(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    stress_period_data = ListTemplateGenerator(('gwf6', 'hfb', 'period', 
+    stress_period_data = ListTemplateGenerator(('gwf6', 'hfb', 'period',
                                                 'stress_period_data'))
     package_abbr = "gwfhfb"
-    package_type = "hfb"
+    _package_type = "hfb"
     dfn_file_name = "gwf-hfb.dfn"
 
-    dfn = [["block options", "name print_input", "type keyword", 
+    dfn = [["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block dimensions", "name maxhfb", "type integer", 
+           ["block dimensions", "name maxhfb", "type integer",
             "reader urword", "optional false"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name stress_period_data", 
-            "type recarray cellid1 cellid2 hydchr", "shape (maxhfb)", 
+           ["block period", "name stress_period_data",
+            "type recarray cellid1 cellid2 hydchr", "shape (maxhfb)",
             "reader urword"],
-           ["block period", "name cellid1", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block period", "name cellid1", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block period", "name cellid2", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block period", "name cellid2", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block period", "name hydchr", "type double precision", "shape", 
+           ["block period", "name hydchr", "type double precision", "shape",
             "tagged false", "in_record true", "reader urword"]]
 
     def __init__(self, model, loading_package=False, print_input=None,
-                 maxhfb=None, stress_period_data=None, fname=None, pname=None,
-                 parent_file=None):
-        super(ModflowGwfhfb, self).__init__(model, "hfb", fname, pname,
-                                            loading_package, parent_file)        
+                 maxhfb=None, stress_period_data=None, filename=None,
+                 pname=None, parent_file=None):
+        super(ModflowGwfhfb, self).__init__(model, "hfb", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.maxhfb = self.build_mfdata("maxhfb",  maxhfb)
-        self.stress_period_data = self.build_mfdata("stress_period_data", 
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.maxhfb = self.build_mfdata("maxhfb", maxhfb)
+        self.stress_period_data = self.build_mfdata("stress_period_data",
                                                     stress_period_data)
+        self._init_complete = True

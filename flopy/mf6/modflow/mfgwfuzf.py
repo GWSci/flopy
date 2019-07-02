@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGwfuzf(mfpackage.MFPackage):
@@ -52,17 +52,16 @@ class ModflowGwfuzf(mfpackage.MFPackage):
     budget_filerecord : [budgetfile]
         * budgetfile (string) name of the binary output file to write budget
           information.
-    ts_filerecord : [ts6_filename]
-        * ts6_filename (string) defines a time-series file defining time series
-          that can be used to assign time-varying values. See the "Time-
-          Variable Input" section for instructions on using the time-series
-          capability.
-    obs_filerecord : [obs6_filename]
-        * obs6_filename (string) name of input file to define observations for
-          the UZF package. See the "Observation utility" section for
-          instructions for preparing observation input files. Table
-          reftable:obstype lists observation type(s) supported by the UZF
-          package.
+    timeseries : {varname:data} or timeseries data
+        * Contains data for the ts package. Data can be stored in a dictionary
+          containing data for the ts package with variable names as keys and
+          package data as values. Data just for the timeseries variable is also
+          acceptable. See ts package documentation for more information.
+    observations : {varname:data} or continuous data
+        * Contains data for the obs package. Data can be stored in a dictionary
+          containing data for the obs package with variable names as keys and
+          package data as values. Data just for the observations variable is
+          also acceptable. See obs package documentation for more information.
     mover : boolean
         * mover (boolean) keyword to indicate that this instance of the UZF
           Package can be used with the Water Mover (MVR) Package. When the
@@ -71,7 +70,7 @@ class ModflowGwfuzf(mfpackage.MFPackage):
     simulate_et : boolean
         * simulate_et (boolean) keyword specifying that ET in the unsaturated
           (UZF) and saturated zones (GWF) will be simulated. ET can be
-          simulated in the UZF cell and not the GWF cell by emitting keywords
+          simulated in the UZF cell and not the GWF cell by omitting keywords
           LINEAR_GWET and SQUARE_GWET.
     linear_gwet : boolean
         * linear_gwet (boolean) keyword specifying that groundwater ET will be
@@ -98,17 +97,17 @@ class ModflowGwfuzf(mfpackage.MFPackage):
           formulation. Capillary pressure is calculated using the Brooks-Corey
           retention function.
     nuzfcells : integer
-        * nuzfcells (integer) is the number of UZF cells. More than 1 UZF cell
-          can be assigned to a GWF cell; however, only 1 GWF cell can be
-          assigned to a single UZF cell. If the MULTILAYER option is used then
-          UZF cells can be assigned to GWF cells below (in deeper layers than)
-          the upper most active GWF cells.
+        * nuzfcells (integer) is the number of UZF cells. More than one UZF
+          cell can be assigned to a GWF cell; however, only one GWF cell can be
+          assigned to a single UZF cell. If more than one UZF cell is assigned
+          to a GWF cell, then an auxiliary variable should be used to reduce
+          the surface area of the UZF cell with the AUXMULTNAME option.
     ntrailwaves : integer
         * ntrailwaves (integer) is the number of trailing waves. NTRAILWAVES
           has a default value of 7 and can be increased to lower mass balance
           error in the unsaturated zone.
     nwavesets : integer
-        * nwavesets (integer) is the number of UZF cells specified. NWAVSETS
+        * nwavesets (integer) is the number of UZF cells specified. NWAVESETS
           has a default value of 40 and can be increased if more waves are
           required to resolve variations in water content within the
           unsaturated zone.
@@ -132,9 +131,10 @@ class ModflowGwfuzf(mfpackage.MFPackage):
           surface cell.
         * ivertcon (integer) integer value set to specify underlying UZF cell
           that receives water flowing to bottom of cell. If unsaturated zone
-          flow reaches water table before the cell bottom then water is added
-          to GWF cell instead of flowing to underlying UZF cell. A value of 0
-          indicates the UZF cell is not connected to an underlying UZF cell.
+          flow reaches the water table before the cell bottom, then water is
+          added to the GWF cell instead of flowing to the underlying UZF cell.
+          A value of 0 indicates the UZF cell is not connected to an underlying
+          UZF cell.
         * surfdep (double) is the surface depression depth of the UZF cell.
         * vks (double) is the vertical saturated hydraulic conductivity of the
           UZF cell.
@@ -211,7 +211,7 @@ class ModflowGwfuzf(mfpackage.MFPackage):
           (see the "Time-Variable Input" section), values can be obtained from
           a time series by entering the time-series name in place of a numeric
           value.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -221,185 +221,195 @@ class ModflowGwfuzf(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    auxiliary = ListTemplateGenerator(('gwf6', 'uzf', 'options', 
+    auxiliary = ListTemplateGenerator(('gwf6', 'uzf', 'options',
                                        'auxiliary'))
-    budget_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options', 
+    budget_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options',
                                                'budget_filerecord'))
-    ts_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options', 
+    ts_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options',
                                            'ts_filerecord'))
-    obs_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options', 
+    obs_filerecord = ListTemplateGenerator(('gwf6', 'uzf', 'options',
                                             'obs_filerecord'))
-    packagedata = ListTemplateGenerator(('gwf6', 'uzf', 'packagedata', 
+    packagedata = ListTemplateGenerator(('gwf6', 'uzf', 'packagedata',
                                          'packagedata'))
-    perioddata = ListTemplateGenerator(('gwf6', 'uzf', 'period', 
+    perioddata = ListTemplateGenerator(('gwf6', 'uzf', 'period',
                                         'perioddata'))
     package_abbr = "gwfuzf"
-    package_type = "uzf"
+    _package_type = "uzf"
     dfn_file_name = "gwf-uzf.dfn"
 
-    dfn = [["block options", "name auxiliary", "type string", 
+    dfn = [["block options", "name auxiliary", "type string",
             "shape (naux)", "reader urword", "optional true"],
-           ["block options", "name auxmultname", "type string", "shape", 
+           ["block options", "name auxmultname", "type string", "shape",
             "reader urword", "optional true"],
-           ["block options", "name boundnames", "type keyword", "shape", 
+           ["block options", "name boundnames", "type keyword", "shape",
             "reader urword", "optional true"],
-           ["block options", "name print_input", "type keyword", 
+           ["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_flows", "type keyword", 
+           ["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name budget_filerecord", 
-            "type record budget fileout budgetfile", "shape", "reader urword", 
+           ["block options", "name budget_filerecord",
+            "type record budget fileout budgetfile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name budget", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name budget", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name fileout", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name fileout", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name budgetfile", "preserve_case true", 
-            "type string", "shape", "in_record true", "reader urword", 
+           ["block options", "name budgetfile", "preserve_case true",
+            "type string", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name ts_filerecord", 
-            "type record ts6 filein ts6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name ts6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name ts_filerecord",
+            "type record ts6 filein ts6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package ts",
+            "construct_data timeseries", "parameter_name timeseries"],
+           ["block options", "name ts6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name ts6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block options", "name ts6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block options", "name obs_filerecord", 
-            "type record obs6 filein obs6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name obs6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name obs_filerecord",
+            "type record obs6 filein obs6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package obs",
+            "construct_data continuous", "parameter_name observations"],
+           ["block options", "name obs6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name obs6_filename", "type string", 
-            "preserve_case true", "in_record true", "tagged false", 
+           ["block options", "name obs6_filename", "type string",
+            "preserve_case true", "in_record true", "tagged false",
             "reader urword", "optional false"],
-           ["block options", "name mover", "type keyword", "tagged true", 
+           ["block options", "name mover", "type keyword", "tagged true",
             "reader urword", "optional true"],
-           ["block options", "name simulate_et", "type keyword", 
+           ["block options", "name simulate_et", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block options", "name linear_gwet", "type keyword", 
+           ["block options", "name linear_gwet", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block options", "name square_gwet", "type keyword", 
+           ["block options", "name square_gwet", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block options", "name simulate_gwseep", "type keyword", 
+           ["block options", "name simulate_gwseep", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block options", "name unsat_etwc", "type keyword", 
+           ["block options", "name unsat_etwc", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block options", "name unsat_etae", "type keyword", 
+           ["block options", "name unsat_etae", "type keyword",
             "tagged true", "reader urword", "optional true"],
-           ["block dimensions", "name nuzfcells", "type integer", 
+           ["block dimensions", "name nuzfcells", "type integer",
             "reader urword", "optional false"],
-           ["block dimensions", "name ntrailwaves", "type integer", 
+           ["block dimensions", "name ntrailwaves", "type integer",
             "reader urword", "optional false"],
-           ["block dimensions", "name nwavesets", "type integer", 
+           ["block dimensions", "name nwavesets", "type integer",
             "reader urword", "optional false"],
-           ["block packagedata", "name packagedata", 
-            "type recarray iuzno cellid landflag ivertcon surfdep vks thtr " 
-            "thts thti eps boundname", 
+           ["block packagedata", "name packagedata",
+            "type recarray iuzno cellid landflag ivertcon surfdep vks thtr "
+            "thts thti eps boundname",
             "shape (nuzfcells)", "reader urword"],
-           ["block packagedata", "name iuzno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name iuzno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block packagedata", "name cellid", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block packagedata", "name cellid", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block packagedata", "name landflag", "type integer", "shape", 
+           ["block packagedata", "name landflag", "type integer", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name ivertcon", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name ivertcon", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block packagedata", "name surfdep", "type double precision", 
+           ["block packagedata", "name surfdep", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name vks", "type double precision", 
+           ["block packagedata", "name vks", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name thtr", "type double precision", 
+           ["block packagedata", "name thtr", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name thts", "type double precision", 
+           ["block packagedata", "name thts", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name thti", "type double precision", 
+           ["block packagedata", "name thti", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name eps", "type double precision", 
+           ["block packagedata", "name eps", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name boundname", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name boundname", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "optional true"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name perioddata", 
-            "type recarray iuzno finf pet extdp extwc ha hroot rootact aux", 
+           ["block period", "name perioddata",
+            "type recarray iuzno finf pet extdp extwc ha hroot rootact aux",
             "shape", "reader urword"],
-           ["block period", "name iuzno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name iuzno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name finf", "type string", "shape", 
-            "tagged false", "in_record true", "time_series true", 
+           ["block period", "name finf", "type string", "shape",
+            "tagged false", "in_record true", "time_series true",
             "reader urword"],
-           ["block period", "name pet", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name pet", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name extdp", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name extdp", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name extwc", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name extwc", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name ha", "type string", "shape", 
-            "tagged false", "in_record true", "time_series true", 
+           ["block period", "name ha", "type string", "shape",
+            "tagged false", "in_record true", "time_series true",
             "reader urword"],
-           ["block period", "name hroot", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name hroot", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name rootact", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name rootact", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name aux", "type double precision", 
-            "in_record true", "tagged false", "shape (naux)", "reader urword", 
+           ["block period", "name aux", "type double precision",
+            "in_record true", "tagged false", "shape (naux)", "reader urword",
             "time_series true", "optional true"]]
 
     def __init__(self, model, loading_package=False, auxiliary=None,
                  auxmultname=None, boundnames=None, print_input=None,
                  print_flows=None, save_flows=None, budget_filerecord=None,
-                 ts_filerecord=None, obs_filerecord=None, mover=None,
+                 timeseries=None, observations=None, mover=None,
                  simulate_et=None, linear_gwet=None, square_gwet=None,
                  simulate_gwseep=None, unsat_etwc=None, unsat_etae=None,
                  nuzfcells=None, ntrailwaves=None, nwavesets=None,
-                 packagedata=None, perioddata=None, fname=None, pname=None,
+                 packagedata=None, perioddata=None, filename=None, pname=None,
                  parent_file=None):
-        super(ModflowGwfuzf, self).__init__(model, "uzf", fname, pname,
-                                            loading_package, parent_file)        
+        super(ModflowGwfuzf, self).__init__(model, "uzf", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.auxiliary = self.build_mfdata("auxiliary",  auxiliary)
-        self.auxmultname = self.build_mfdata("auxmultname",  auxmultname)
-        self.boundnames = self.build_mfdata("boundnames",  boundnames)
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
-        self.budget_filerecord = self.build_mfdata("budget_filerecord", 
+        self.auxiliary = self.build_mfdata("auxiliary", auxiliary)
+        self.auxmultname = self.build_mfdata("auxmultname", auxmultname)
+        self.boundnames = self.build_mfdata("boundnames", boundnames)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
+        self.budget_filerecord = self.build_mfdata("budget_filerecord",
                                                    budget_filerecord)
-        self.ts_filerecord = self.build_mfdata("ts_filerecord",  ts_filerecord)
-        self.obs_filerecord = self.build_mfdata("obs_filerecord", 
-                                                obs_filerecord)
-        self.mover = self.build_mfdata("mover",  mover)
-        self.simulate_et = self.build_mfdata("simulate_et",  simulate_et)
-        self.linear_gwet = self.build_mfdata("linear_gwet",  linear_gwet)
-        self.square_gwet = self.build_mfdata("square_gwet",  square_gwet)
-        self.simulate_gwseep = self.build_mfdata("simulate_gwseep", 
+        self._ts_filerecord = self.build_mfdata("ts_filerecord",
+                                                None)
+        self._ts_package = self.build_child_package("ts", timeseries,
+                                                    "timeseries",
+                                                    self._ts_filerecord)
+        self._obs_filerecord = self.build_mfdata("obs_filerecord",
+                                                 None)
+        self._obs_package = self.build_child_package("obs", observations,
+                                                     "continuous",
+                                                     self._obs_filerecord)
+        self.mover = self.build_mfdata("mover", mover)
+        self.simulate_et = self.build_mfdata("simulate_et", simulate_et)
+        self.linear_gwet = self.build_mfdata("linear_gwet", linear_gwet)
+        self.square_gwet = self.build_mfdata("square_gwet", square_gwet)
+        self.simulate_gwseep = self.build_mfdata("simulate_gwseep",
                                                  simulate_gwseep)
-        self.unsat_etwc = self.build_mfdata("unsat_etwc",  unsat_etwc)
-        self.unsat_etae = self.build_mfdata("unsat_etae",  unsat_etae)
-        self.nuzfcells = self.build_mfdata("nuzfcells",  nuzfcells)
-        self.ntrailwaves = self.build_mfdata("ntrailwaves",  ntrailwaves)
-        self.nwavesets = self.build_mfdata("nwavesets",  nwavesets)
-        self.packagedata = self.build_mfdata("packagedata",  packagedata)
-        self.perioddata = self.build_mfdata("perioddata",  perioddata)
+        self.unsat_etwc = self.build_mfdata("unsat_etwc", unsat_etwc)
+        self.unsat_etae = self.build_mfdata("unsat_etae", unsat_etae)
+        self.nuzfcells = self.build_mfdata("nuzfcells", nuzfcells)
+        self.ntrailwaves = self.build_mfdata("ntrailwaves", ntrailwaves)
+        self.nwavesets = self.build_mfdata("nwavesets", nwavesets)
+        self.packagedata = self.build_mfdata("packagedata", packagedata)
+        self.perioddata = self.build_mfdata("perioddata", perioddata)
+        self._init_complete = True

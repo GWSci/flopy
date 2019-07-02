@@ -120,7 +120,8 @@ class ModflowPcg(Package):
         # set package name
         fname = [filenames[0]]
 
-        # Call ancestor's init to set self.parent, extension, name and unit number
+        # Call ancestor's init to set self.parent, extension, name and
+        # unit number
         Package.__init__(self, model, extension=extension, name=name,
                          unit_number=units, extra=extra, filenames=fname)
 
@@ -243,29 +244,45 @@ class ModflowPcg(Package):
             ifrfm = True
         ihcofadd = 0
         dampt = 0.
+
+        # free format
         if ifrfm:
             t = line_parse(line)
-            #t = line.strip().split()
+            # t = line.strip().split()
             mxiter = int(t[0])
             iter1 = int(t[1])
             npcond = int(t[2])
             try:
                 ihcofadd = int(t[3])
             except:
-                pass
+                if model.verbose:
+                    print('   explicit ihcofadd in file')
+
             # dataset 2
-            line = f.readline()
-            t = line_parse(line)
-            #t = line.strip().split()
-            hclose = float(t[0])
-            rclose = float(t[1])
-            relax = float(t[2])
-            nbpol = int(t[3])
-            iprpcg = int(t[4])
-            mutpcg = int(t[5])
-            damp = float(t[6])
-            if damp < 0.:
-                dampt = float(t[7])
+            try:
+                line = f.readline()
+                t = line_parse(line)
+                # t = line.strip().split()
+                hclose = float(t[0])
+                rclose = float(t[1])
+                relax = float(t[2])
+                nbpol = int(t[3])
+                iprpcg = int(t[4])
+                mutpcg = int(t[5])
+                damp = float(t[6])
+                if damp < 0.:
+                    dampt = float(t[7])
+            except ValueError:
+                hclose = float(line[0:10].strip())
+                rclose = float(line[10:20].strip())
+                relax = float(line[20:30].strip())
+                nbpol = int(line[30:40].strip())
+                iprpcg = int(line[40:50].strip())
+                mutpcg = int(line[50:60].strip())
+                damp = float(line[60:70].strip())
+                if damp < 0.:
+                    dampt = float(line[70:80].strip())
+        # fixed format
         else:
             mxiter = int(line[0:10].strip())
             iter1 = int(line[10:20].strip())
@@ -273,7 +290,9 @@ class ModflowPcg(Package):
             try:
                 ihcofadd = int(line[30:40].strip())
             except:
-                pass
+                if model.verbose:
+                    print('   explicit ihcofadd in file')
+
             # dataset 2
             line = f.readline()
             hclose = float(line[0:10].strip())

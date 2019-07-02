@@ -6,11 +6,13 @@ mbase module
 """
 
 from __future__ import print_function
+import abc
 import sys
 import os
 import subprocess as sp
 import shutil
 import threading
+import warnings
 
 if sys.version_info > (3, 0):
     import queue as Queue
@@ -19,37 +21,22 @@ else:
 from datetime import datetime
 import copy
 import numpy as np
-from flopy import utils
+from flopy import utils, discretization
 from .version import __version__
+from .discretization.modeltime import ModelTime
+from .discretization.grid import Grid
+
+if sys.version_info >= (3, 3):
+    from shutil import which
+else:
+    from distutils.spawn import find_executable as which
 
 # Global variables
 iconst = 1  # Multiplier for individual array elements in integer and real arrays read by MODFLOW's U2DREL, U1DREL and U2DINT.
 iprn = -1  # Printout flag. If >= 0 then array values read are printed in listing file.
 
 
-def is_exe(fpath):
-    return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
-
-def which(program):
-    fpath, fname = os.path.split(program)
-    if fpath:
-        if is_exe(program):
-            return program
-    else:
-        # test for exe in current working directory
-        if is_exe(program):
-            return program
-        # test for exe in path statement
-        for path in os.environ["PATH"].split(os.pathsep):
-            path = path.strip('"')
-            exe_file = os.path.join(path, program)
-            if is_exe(exe_file):
-                return exe_file
-    return None
-
-
-class FileData(object):
+class FileDataEntry(object):
     def __init__(self, fname, unit, binflag=False, output=False, package=None):
         self.fname = fname
         self.unit = unit
@@ -61,6 +48,7 @@ class FileData(object):
 class FileData(object):
     def __init__(self):
         self.file_data = []
+        return
 
     def add_file(self, fname, unit, binflag=False, output=False, package=None):
         ipop = []
@@ -68,11 +56,108 @@ class FileData(object):
             if file_data.fname == fname or file_data.unit == unit:
                 ipop.append(idx)
 
-        self.file_data.append(FileData(fname, unit, binflag=binflag,
-                                       output=output, package=package))
+        self.file_data.append(FileDataEntry(fname, unit, binflag=binflag,
+                                            output=output, package=package))
+        return
 
 
-class BaseModel(object):
+class ModelInterface(object):
+    def __init__(self):
+        self._mg_resync = True
+        self._modelgrid = None
+
+    @property
+    @abc.abstractmethod
+    def modelgrid(self):
+        raise NotImplementedError(
+            'must define modelgrid in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def packagelist(self):
+        raise NotImplementedError(
+            'must define packagelist in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def namefile(self):
+        raise NotImplementedError(
+            'must define namefile in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def model_ws(self):
+        raise NotImplementedError(
+            'must define model_ws in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def exename(self):
+        raise NotImplementedError(
+            'must define exename in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def version(self):
+        raise NotImplementedError(
+            'must define version in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def solver_tols(self):
+        raise NotImplementedError(
+            'must define version in child '
+            'class to use this base class')
+
+    @abc.abstractmethod
+    def export(self, f, **kwargs):
+        raise NotImplementedError(
+            'must define export in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def laytyp(self):
+        raise NotImplementedError(
+            'must define laytyp in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def hdry(self):
+        raise NotImplementedError(
+            'must define hdry in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def hnoflo(self):
+        raise NotImplementedError(
+            'must define hnoflo in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def laycbd(self):
+        raise NotImplementedError(
+            'must define laycbd in child '
+            'class to use this base class')
+
+    @property
+    @abc.abstractmethod
+    def verbose(self):
+        raise NotImplementedError(
+            'must define verbose in child '
+            'class to use this base class')
+
+
+class BaseModel(ModelInterface):
     """
     MODFLOW based models base class
 
@@ -98,16 +183,18 @@ class BaseModel(object):
 
     def __init__(self, modelname='modflowtest', namefile_ext='nam',
                  exe_name='mf2k.exe', model_ws=None,
-                 structured=True, **kwargs):
+                 structured=True, verbose=False, **kwargs):
         """
         BaseModel init
         """
+        ModelInterface.__init__(self)
         self.__name = modelname
-        self.namefile_ext = namefile_ext
-        self.namefile = self.__name + '.' + self.namefile_ext
-        self.packagelist = []
+        self.namefile_ext = namefile_ext or ''
+        self._namefile = self.__name + '.' + self.namefile_ext
+        self._packagelist = []
         self.heading = ''
         self.exe_name = exe_name
+        self._verbose = verbose
         self.external_extension = 'ref'
         if model_ws is None: model_ws = os.getcwd()
         if not os.path.exists(model_ws):
@@ -125,11 +212,22 @@ class BaseModel(object):
 
         # check for reference info in kwargs
         # we are just carrying these until a dis package is added
+        xll = kwargs.pop("xll", None)
+        yll = kwargs.pop("yll", None)
         self._xul = kwargs.pop("xul", None)
         self._yul = kwargs.pop("yul", None)
-        self._rotation = kwargs.pop("rotation", 0.0)
-        self._proj4_str = kwargs.pop("proj4_str", "EPSG:4326")
+        if self._xul is not None or self._yul is not None:
+            warnings.warn('xul/yul have been deprecated. Use xll/yll instead.',
+                          DeprecationWarning)
+
+        rotation = kwargs.pop("rotation", 0.0)
+        proj4_str = kwargs.pop("proj4_str", None)
         self._start_datetime = kwargs.pop("start_datetime", "1-1-1970")
+
+        # build model discretization objects
+        self._modelgrid = Grid(proj4=proj4_str, xoff=xll, yoff=yll,
+                               angrot=rotation)
+        self._modeltime = None
 
         # Model file information
         self.__onunit__ = 10
@@ -143,6 +241,7 @@ class BaseModel(object):
         self.external_binflag = []
         self.external_output = []
         self.package_units = []
+        self._next_ext_unit = None
 
         # output files
         self.output_fnames = []
@@ -151,6 +250,103 @@ class BaseModel(object):
         self.output_packages = []
 
         return
+
+    @property
+    def modeltime(self):
+        raise NotImplementedError(
+            'must define modeltime in child '
+            'class to use this base class')
+
+    @property
+    def modelgrid(self):
+        raise NotImplementedError(
+            'must define modelgrid in child '
+            'class to use this base class')
+
+    @property
+    def packagelist(self):
+        return self._packagelist
+
+    @packagelist.setter
+    def packagelist(self, packagelist):
+        self._packagelist = packagelist
+
+    @property
+    def namefile(self):
+        return self._namefile
+
+    @namefile.setter
+    def namefile(self, namefile):
+        self._namefile = namefile
+
+    @property
+    def model_ws(self):
+        return self._model_ws
+
+    @model_ws.setter
+    def model_ws(self, model_ws):
+        self._model_ws = model_ws
+
+    @property
+    def exename(self):
+        return self._exename
+
+    @exename.setter
+    def exename(self, exename):
+        self._exename = exename
+
+    @property
+    def version(self):
+        return self._version
+
+    @version.setter
+    def version(self, version):
+        self._version = version
+
+    @property
+    def verbose(self):
+        return self._verbose
+
+    @verbose.setter
+    def verbose(self, verbose):
+        self._verbose = verbose
+
+    @property
+    def laytyp(self):
+        if self.get_package("LPF") is not None:
+            return self.get_package("LPF").laytyp.array
+        if self.get_package("BCF6") is not None:
+            return self.get_package("BCF6").laycon.array
+        if self.get_package("UPW") is not None:
+            return self.get_package("UPW").laytyp.array
+
+        return None
+
+    @property
+    def hdry(self):
+        if self.get_package("LPF") is not None:
+            return self.get_package("LPF").hdry
+        if self.get_package("BCF6") is not None:
+            return self.get_package("BCF6").hdry
+        if self.get_package("UPW") is not None:
+            return self.get_package("UPW").hdry
+        return None
+
+    @property
+    def hnoflo(self):
+        try:
+            bas6 = self.get_package("BAS6")
+            return bas6.hnoflo
+        except AttributeError:
+            return None
+
+    @property
+    def laycbd(self):
+        try:
+            dis = self.get_package("DIS")
+            return dis.laycbd.array
+        except AttributeError:
+            return None
 
     # we don't need these - no need for controlled access to array_free_format
     # def set_free_format(self, value=True):
@@ -204,7 +400,7 @@ class BaseModel(object):
         #    f = pak.export(f)
         # return f
         from .export import utils
-        return utils.model_helper(f, self, **kwargs)
+        return utils.model_export(f, self, **kwargs)
 
     def add_package(self, p):
         """
@@ -301,7 +497,7 @@ class BaseModel(object):
                 return None
         if item == "start_datetime":
             if self.dis is not None:
-                return self.dis.tr.start_datetime
+                return self.dis.start_datetime
             else:
                 return None
 
@@ -365,7 +561,8 @@ class BaseModel(object):
             # determine if the file is in external_units
             if abs(unit) in self.external_units:
                 idx = self.external_units.index(abs(unit))
-                fname = os.path.basename(self.external_fnames[idx])
+                if fname is None:
+                    fname = os.path.basename(self.external_fnames[idx])
                 binflag = self.external_binflag[idx]
                 self.remove_external(unit=abs(unit))
             # determine if the unit exists in the output data
@@ -424,7 +621,7 @@ class BaseModel(object):
                   "replacing existing filename {0}".format(fname))
             idx = self.output_fnames.index(fname)
             if self.verbose:
-                self._output_msg(i, add=False)
+                self._output_msg(idx, add=False)
             self.output_fnames.pop(idx)
             self.output_units.pop(idx)
             self.output_binflag.pop(idx)
@@ -665,9 +862,12 @@ class BaseModel(object):
 
     def add_existing_package(self, filename, ptype=None,
                              copy_to_model_ws=True):
-        """ add an existing package to a model instance.
+        """
+        Add an existing package to a model instance.
+
         Parameters
         ----------
+
         filename : str
             the name of the file to add as a package
         ptype : optional
@@ -675,6 +875,11 @@ class BaseModel(object):
             then the file extension of the filename arg is used
         copy_to_model_ws : bool
             flag to copy the package file into the model_ws directory.
+
+        Returns
+        -------
+        None
+
         """
         if ptype is None:
             ptype = filename.split('.')[-1]
@@ -766,12 +971,14 @@ class BaseModel(object):
                 return pp
         return None
 
-    def get_package_list(self):
+    def get_package_list(self, ftype=None):
         """
         Get a list of all the package names.
 
         Parameters
         ----------
+        ftype : str
+            Type of package, 'RIV', 'LPF', etc.
 
         Returns
         -------
@@ -782,7 +989,10 @@ class BaseModel(object):
         """
         val = []
         for pp in (self.packagelist):
-            val.append(pp.name[0].upper())
+            if ftype is None:
+                val.append(pp.name[0].upper())
+            elif pp.package_type.lower() == ftype:
+                val.append(pp.name[0].upper())
         return val
 
     def set_version(self, version):
@@ -836,14 +1046,18 @@ class BaseModel(object):
             new_pth = os.getcwd()
         if not os.path.exists(new_pth):
             try:
-                sys.stdout.write(
-                    '\ncreating model workspace...\n   {}\n'.format(new_pth))
+                line = '\ncreating model workspace...\n' + \
+                       '   {}'.format(new_pth)
+                print(line)
                 os.makedirs(new_pth)
             except:
-                line = '\n{} not valid, workspace-folder '.format(new_pth) + \
-                       'was changed to {}\n'.format(os.getcwd())
-                print(line)
-                new_pth = os.getcwd()
+                line = '\n{} not valid, workspace-folder '.format(new_pth)
+                raise OSError(line)
+                # line = '\n{} not valid, workspace-folder '.format(new_pth) + \
+                #        'was changed to {}\n'.format(os.getcwd())
+                # print(line)
+                # new_pth = os.getcwd()
+
         # --reset the model workspace
         old_pth = self._model_ws
         self._model_ws = new_pth
@@ -922,14 +1136,18 @@ class BaseModel(object):
         elif key == "model_ws":
             self.change_model_ws(value)
         elif key == "sr":
-            assert isinstance(value, utils.SpatialReference)
+            assert isinstance(value, utils.reference.SpatialReference)
+            warnings.warn(
+                "SpatialReference has been deprecated.",
+                category=DeprecationWarning)
             if self.dis is not None:
                 self.dis.sr = value
             else:
                 raise Exception("cannot set SpatialReference -"
                                 "ModflowDis not found")
         elif key == "tr":
-            assert isinstance(value, utils.TemporalReference)
+            assert isinstance(value,
+                              discretization.reference.TemporalReference)
             if self.dis is not None:
                 self.dis.tr = value
             else:
@@ -1000,7 +1218,7 @@ class BaseModel(object):
         # performed on a model load
         if self.parameter_load and not self.free_format_input:
             if self.verbose:
-                print('\nReseting free_format_input to True to ' +
+                print('\nResetting free_format_input to True to ' +
                       'preserve the precision of the parameter data.')
             self.free_format_input = True
 
@@ -1015,7 +1233,7 @@ class BaseModel(object):
                 # model-level package check above
                 # otherwise checks are run twice
                 # or the model level check procedure would have to be split up
-                # or each package would need a check arguemnt,
+                # or each package would need a check argument,
                 # or default for package level check would have to be False
                 try:
                     p.write_file(check=False)
@@ -1218,71 +1436,10 @@ class BaseModel(object):
         >>> ml.plot()
 
         """
-        # valid keyword arguments
-        if 'kper' in kwargs:
-            kper = int(kwargs.pop('kper'))
-        else:
-            kper = 0
+        from flopy.plot import PlotUtilities
 
-        if 'mflay' in kwargs:
-            mflay = kwargs.pop('mflay')
-        else:
-            mflay = None
-
-        if 'filename_base' in kwargs:
-            fileb = kwargs.pop('filename_base')
-        else:
-            fileb = None
-
-        if 'file_extension' in kwargs:
-            fext = kwargs.pop('file_extension')
-            fext = fext.replace('.', '')
-        else:
-            fext = 'png'
-
-        if 'key' in kwargs:
-            key = kwargs.pop('key')
-        else:
-            key = None
-
-        if self.verbose:
-            print('\nPlotting Packages')
-
-        axes = []
-        ifig = 0
-        if SelPackList is None:
-            for p in self.packagelist:
-                caxs = p.plot(initial_fig=ifig,
-                              filename_base=fileb, file_extension=fext,
-                              kper=kper, mflay=mflay, key=key)
-                # unroll nested lists of axes into a single list of axes
-                if isinstance(caxs, list):
-                    for c in caxs:
-                        axes.append(c)
-                else:
-                    axes.append(caxs)
-                # update next active figure number
-                ifig = len(axes) + 1
-        else:
-            for pon in SelPackList:
-                for i, p in enumerate(self.packagelist):
-                    if pon in p.name:
-                        if self.verbose:
-                            print('   Plotting Package: ', p.name[0])
-                        caxs = p.plot(initial_fig=ifig,
-                                      filename_base=fileb, file_extension=fext,
-                                      kper=kper, mflay=mflay, key=key)
-                        # unroll nested lists of axes into a single list of axes
-                        if isinstance(caxs, list):
-                            for c in caxs:
-                                axes.append(c)
-                        else:
-                            axes.append(caxs)
-                        # update next active figure number
-                        ifig = len(axes) + 1
-                        break
-        if self.verbose:
-            print(' ')
+        axes = PlotUtilities._plot_model_helper(self, SelPackList=SelPackList,
+                                                **kwargs)
         return axes
 
     def to_shapefile(self, filename, package_names=None, **kwargs):
@@ -1309,7 +1466,6 @@ class BaseModel(object):
         >>> m.to_shapefile('model.shp', SelPackList)
 
         """
-        import warnings
         warnings.warn("to_shapefile() is deprecated. use .export()")
         self.export(filename, package_names=package_names)
         return
@@ -1317,8 +1473,8 @@ class BaseModel(object):
 
 def run_model(exe_name, namefile, model_ws='./',
               silent=False, pause=False, report=False,
-              normal_msg='normal termination',
-              async=False, cargs=None):
+              normal_msg='normal termination', use_async=False,
+              cargs=None):
     """
     This function will run the model using subprocess.Popen.  It
     communicates with the model's stdout asynchronously and reports
@@ -1330,7 +1486,9 @@ def run_model(exe_name, namefile, model_ws='./',
         Executable name (with path, if necessary) to run.
     namefile : str
         Namefile of model to run. The namefile must be the
-        filename of the namefile without the path.
+        filename of the namefile without the path. Namefile can be None
+        to allow programs that do not require a control file (name file)
+        to be passed as a command line argument.
     model_ws : str
         Path to the location of the namefile. (default is the
         current working directory - './')
@@ -1344,8 +1502,8 @@ def run_model(exe_name, namefile, model_ws='./',
     normal_msg : str
         Normal termination message used to determine if the
         run terminated normally. (default is 'normal termination')
-    async : boolean
-        asynchonously read model stdout and report with timestamps.  good for
+    use_async : boolean
+        asynchronously read model stdout and report with timestamps.  good for
         models that take long time to run.  not good for models that run
         really fast
     cargs : str or list of strings
@@ -1381,13 +1539,15 @@ def run_model(exe_name, namefile, model_ws='./',
         raise Exception(s)
     else:
         if not silent:
-            s = 'FloPy is using the following executable to run the model: {}'.format(
-                exe)
+            s = 'FloPy is using the following ' + \
+                ' executable to run the model: {}'.format(exe)
             print(s)
 
-    if not os.path.isfile(os.path.join(model_ws, namefile)):
-        s = 'The namefile for this model does not exists: {}'.format(namefile)
-        raise Exception(s)
+    if namefile is not None:
+        if not os.path.isfile(os.path.join(model_ws, namefile)):
+            s = 'The namefile for this model ' + \
+                'does not exists: {}'.format(namefile)
+            raise Exception(s)
 
     # simple little function for the thread to target
     def q_output(output, q):
@@ -1397,7 +1557,9 @@ def run_model(exe_name, namefile, model_ws='./',
             # output.close()
 
     # create a list of arguments to pass to Popen
-    argv = [exe_name, namefile]
+    argv = [exe_name]
+    if namefile is not None:
+        argv.append(namefile)
 
     # add additional arguments to Popen arguments
     if cargs is not None:
@@ -1410,7 +1572,7 @@ def run_model(exe_name, namefile, model_ws='./',
     proc = sp.Popen(argv,
                     stdout=sp.PIPE, stderr=sp.STDOUT, cwd=model_ws)
 
-    if not async:
+    if not use_async:
         while True:
             line = proc.stdout.readline()
             c = line.decode('utf-8')

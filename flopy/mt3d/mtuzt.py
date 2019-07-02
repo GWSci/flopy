@@ -9,104 +9,86 @@ from ..utils import Util2d, Util3d, Transient2d
 class Mt3dUzt(Package):
     """
     MT3D-USGS Unsaturated-Zone Transport package class
-    
+
     Parameters
     ----------
     model : model object
         The model object (of type :class:`flopy.mt3dms.mt.Mt3dms`) to which
         this package will be added.
-    mxuzcon : int
-        Is the maximum number of UZF1 connections and is equal to the number 
-        of non-zero entries in the IRNBND array found in the UZF1 input file 
-        for MODFLOW.  Keep in mind there is potential for every cell with a 
-        non-zero IRNBND entry to pass water to either a lake or stream segment
     icbcuz : int
-        Is the unit number to which unsaturated-zone concentration will be 
+        Is the unit number to which unsaturated-zone concentration will be
         written out.
     iet : int
-        Is a flag that indicates whether or not ET is being simulated in the 
-        UZF1 flow package.  If ET is not being simulated, IET informs FMI 
-        package not to look for UZET and GWET arrays in the flow-tranpsort 
-        link file.
+        Is a flag that indicates whether or not ET is being simulated in the
+        UZF1 flow package (=0 indicates that ET is not being simulated).
+        If ET is not being simulated, IET informs FMI package not to look
+        for UZET and GWET arrays in the flow-transport link file.
     iuzfbnd : array of ints
-        Specifies which row/column indices variably-saturated transport will 
+        Specifies which row/column indices variably-saturated transport will
         be simulated in.
            >0  indicates variably-saturated transport will be simulated;
            =0  indicates variably-saturated transport will not be simulated;
-           <0  Corresponds to IUZFBND < 0 in the UZF1 input package, meaning 
+           <0  Corresponds to IUZFBND < 0 in the UZF1 input package, meaning
                that user-supplied values for FINF are specified recharge and
-               therefore transport through the unsaturated zone is not 
+               therefore transport through the unsaturated zone is not
                simulated.
-    wc : array of floats
-        Starting water content.  For cells above the water tables, this value 
-        can range between residual and saturated water contents.  In cells 
-        below the water table, this value will be eqal to saturated water 
-        content (i.e., effective porosity).  For cells containing the water 
-        table, a volume average approach needs to be used to calculate an 
-        equivalent starting water content.
-    sdh : array of floats
-        Starting saturated thickness for each cell in the simulation.  For 
-        cells residing above the starting water table, SDH=0. In completely 
-        saturated cells, SDH is equal to total thickness.  For cells 
-        containing the water table, SDH equals the water table elevation minus 
-        the cell bottom elevation.
     incuzinf : int
-        (This value is repeated for each stress period as explained next) A 
-        flag indicating whether an array containing the concentration of 
-        infiltrating water (FINF) for each simulated species (ncomp) will be 
-        read for the current stress period.  If INCUZINF >= 0, an array 
-        containing the concentration of infiltrating flux for each species 
-        will be read.  If INCUZINF < 0, the concentration of infiltrating flux 
-        will be reused from the previous stress period.  If INCUZINF < 0 is 
-        specified for the first stress period, then by default the 
-        concentration of positive infiltrating flux (source) is set equal to 
-        zero.  There is no possibility of a negative infiltration flux being 
-        specified.  If infiltrating water is rejected due to an infiltration 
-        rate exceeding the vertical hydraulic conductivity, or because 
-        saturation is reached in the unsaturated zone and the water table is 
-        therefore at land surface, the concentration of the runoff will be 
-        equal to CUZINF specified next.  The runoff is routed if IRNBND is 
+        (This value is repeated for each stress period as explained next) A
+        flag indicating whether an array containing the concentration of
+        infiltrating water (FINF) for each simulated species (ncomp) will be
+        read for the current stress period.  If INCUZINF >= 0, an array
+        containing the concentration of infiltrating flux for each species
+        will be read.  If INCUZINF < 0, the concentration of infiltrating flux
+        will be reused from the previous stress period.  If INCUZINF < 0 is
+        specified for the first stress period, then by default the
+        concentration of positive infiltrating flux (source) is set equal to
+        zero.  There is no possibility of a negative infiltration flux being
+        specified.  If infiltrating water is rejected due to an infiltration
+        rate exceeding the vertical hydraulic conductivity, or because
+        saturation is reached in the unsaturated zone and the water table is
+        therefore at land surface, the concentration of the runoff will be
+        equal to CUZINF specified next.  The runoff is routed if IRNBND is
         specified in the MODFLOW simulation.
     cuzinf : array of floats
         Is the concentration of the infiltrating flux for a particular species.
         An array for each species will be read.
     incuzet : int
-        (This value is repeated for each stress period as explained next) A 
-        flag indicating whether an array containing the concentration of 
-        evapotranspiration flux originating from the unsaturated zone will be 
-        read for the current stress period.  If INCUZET >= 0, an array 
-        containing the concentration of evapotranspiration flux originating 
-        from the unsaturated zone for each species will be read.  If 
-        INCUZET < 0, the concentration of evapotranspiration flux for each 
-        species will be reused from the last stress period.  If INCUZET < 0 
-        is specified for the first stress period, then by default, the 
-        concentration of negative evapotranspiration flux (sink) is set 
-        equal to the aquifer concentration, while the concentration of 
+        (This value is repeated for each stress period as explained next) A
+        flag indicating whether an array containing the concentration of
+        evapotranspiration flux originating from the unsaturated zone will be
+        read for the current stress period.  If INCUZET >= 0, an array
+        containing the concentration of evapotranspiration flux originating
+        from the unsaturated zone for each species will be read.  If
+        INCUZET < 0, the concentration of evapotranspiration flux for each
+        species will be reused from the last stress period.  If INCUZET < 0
+        is specified for the first stress period, then by default, the
+        concentration of negative evapotranspiration flux (sink) is set
+        equal to the aquifer concentration, while the concentration of
         positive evapotranspiration flux (source) is set to zero.
     cuzet : array of floats
-        Is the concentration of ET fluxes originating from the unsaturated 
-        zone.  As a default, this array is set equal to 0 and only overridden 
-        if the user specifies INCUZET > 1.  If empirical evidence suggest 
-        volatilization of simulated constituents from the unsaturated zone, 
-        this may be one mechanism for simulating this process, though it would 
-        depend on the amount of simulated ET originating from the unsaturated 
+        Is the concentration of ET fluxes originating from the unsaturated
+        zone.  As a default, this array is set equal to 0 and only overridden
+        if the user specifies INCUZET > 1.  If empirical evidence suggest
+        volatilization of simulated constituents from the unsaturated zone,
+        this may be one mechanism for simulating this process, though it would
+        depend on the amount of simulated ET originating from the unsaturated
         zone.  An array for each species will be read.
     incgwet : int
-        (This value is repeated for each stress period as explained next) Is 
-        a flag indicating whether an array containing the concentration of 
-        evapotranspiration flux originating from the saturated zone will be 
-        read for the current stress period.  If INCGWET >= 0, an array 
-        containing the concentration of evapotranspiration flux originating 
-        from the saturated zone for each species will be read.  If 
-        INCGWET < 0, the concentration of evapotranspiration flux for each 
-        species will be reused from the last stress period.  If INCUZET < 0 
-        is specified for the first stress period, then by default, the 
-        concentration of negative evapotranspiration flux (sink) is set to 
-        the aquifer concentration, while the concentration of positive 
+        (This value is repeated for each stress period as explained next) Is
+        a flag indicating whether an array containing the concentration of
+        evapotranspiration flux originating from the saturated zone will be
+        read for the current stress period.  If INCGWET >= 0, an array
+        containing the concentration of evapotranspiration flux originating
+        from the saturated zone for each species will be read.  If
+        INCGWET < 0, the concentration of evapotranspiration flux for each
+        species will be reused from the last stress period.  If INCUZET < 0
+        is specified for the first stress period, then by default, the
+        concentration of negative evapotranspiration flux (sink) is set to
+        the aquifer concentration, while the concentration of positive
         evapotranspiration flux (source) is set to zero.
     cgwet : array of floats
-        Is the concentration of ET fluxes originating from the saturated zone. 
-        As a default, this array is set equal to 0 and only overridden if the 
+        Is the concentration of ET fluxes originating from the saturated zone.
+        As a default, this array is set equal to 0 and only overridden if the
         user specifies INCUZET > 1.  An array for each species will be read.
     extension : string
         Filename extension (default is 'uzt')
@@ -150,8 +132,8 @@ class Mt3dUzt(Package):
 
     """
 
-    def __init__(self, model, mxuzcon=0, icbcuz=None, iet=0, iuzfbnd=None,
-                 wc=0., sdh=0., cuzinf=None, cuzet=None, cgwet=None,
+    def __init__(self, model, icbcuz=None, iet=0, iuzfbnd=None,
+                 cuzinf=None, cuzet=None, cgwet=None,
                  extension='uzt', unitnumber=None, filenames=None, **kwargs):
 
         # set default unit number of one is not specified
@@ -163,8 +145,6 @@ class Mt3dUzt(Package):
         # set filenames
         if filenames is None:
             filenames = [None, None]
-            if abs(ioutobs) > 0:
-                filenames[1] = model.name
         elif isinstance(filenames, str):
             filenames = [filenames, None, None]
         elif isinstance(filenames, list):
@@ -201,26 +181,19 @@ class Mt3dUzt(Package):
 
         # Set package specific parameters
         self.heading1 = '# UZT for MT3D-USGS, generated by Flopy'
-        self.mxuzcon = mxuzcon
         self.icbcuz = icbcuz
         self.iet = iet
 
         if iuzfbnd is not None:
-            self.iuzfbnd = Util2d(self.parent, (nrow, ncol), np.int,
+            self.iuzfbnd = Util2d(self.parent, (nrow, ncol), np.int32,
                                   iuzfbnd, name='iuzfbnd',
                                   locat=self.unit_number[0])
         # set iuzfbnd based on UZF input file
         else:
-            arr = np.zeros((nlay, nrow, ncol), dtype=np.int)
-            self.iuzfbnd = Util3d(self.parent, (nlay, nrow, ncol), np.int,
+            arr = np.zeros((nlay, nrow, ncol), dtype=np.int32)
+            self.iuzfbnd = Util3d(self.parent, (nlay, nrow, ncol), np.int32,
                                   arr, name='iuzfbnd',
                                   locat=self.unit_number[0])
-
-        self.wc = Util3d(model, (nlay, nrow, ncol), np.float32, wc, name='wc',
-                         locat=self.unit_number[0])
-
-        self.sdh = Util3d(model, (nlay, nrow, ncol), np.float32, sdh,
-                          name='sdh', locat=self.unit_number[0])
 
         # Note: list is used for multi-species, NOT for stress periods!
         if cuzinf is not None:
@@ -300,19 +273,13 @@ class Mt3dUzt(Package):
         f_uzt.write('#{0:s}\n'.format(self.heading1))
 
         # Item 2
-        f_uzt.write('{0:10d}{1:10d}{2:10d}          #MXUZCON, ICBCUZ, IET\n'
-                    .format(self.mxuzcon, self.icbcuz, self.iet))
+        f_uzt.write('{0:10d}{1:10d}                    #ICBCUZ, IET\n'
+                    .format(self.icbcuz, self.iet))
 
         # Item 3
         f_uzt.write(self.iuzfbnd.get_file_entry())
 
-        # Item 4
-        f_uzt.write(self.wc.get_file_entry())
-
-        # Item 5
-        f_uzt.write(self.sdh.get_file_entry())
-
-        # Items 6-11
+        # Items 4-9
         # (Loop through each stress period and write uzt information)
         nper = self.parent.nper
         for kper in range(nper):
@@ -364,7 +331,7 @@ class Mt3dUzt(Package):
                         incgwet = max(incgwet, incgweticomp)
                         if incgwet == 1:
                             break
-                    f_uzt.write('{:10d}          # INCGWET - SP {1:5d}\n'
+                    f_uzt.write('{0:10d}          # INCGWET - SP {1:5d}\n'
                                 .format(incgwet, kper + 1))
                     if incgwet == 1:
                         for t2d in self.cgwet:
@@ -441,32 +408,19 @@ class Mt3dUzt(Package):
                 i += 1
             line = f.readline()
 
-        # Item 2 (MXUZCON, ICBCUZ, IET)
+        # Item 2 (ICBCUZ, IET)
         if line[0:1] != '#':
-            # Don't yet read the next line because the current line because it
+            # Don't yet read the next line because the current line
             # contains the values in item 2
             m_arr = line.strip().split()
-            mxuzcon = int(m_arr[0])
-            icbcuz = int(m_arr[1])
-            iet = int(m_arr[2])
+            icbcuz = int(m_arr[0])
+            iet = int(m_arr[1])
 
         # Item 3 [IUZFBND(NROW,NCOL) (one array for each layer)]
         if model.verbose:
             print('   loading IUZFBND...')
-        iuzfbnd = Util2d.load(f, model, (nrow, ncol), np.int, 'iuzfbnd',
+        iuzfbnd = Util2d.load(f, model, (nrow, ncol), np.int32, 'iuzfbnd',
                               ext_unit_dict)
-
-        # Item 4 [WC(NROW,NCOL) (one array for each layer)]
-        if model.verbose:
-            print('   loading WC...')
-        wc = Util3d.load(f, model, (nlay, nrow, ncol), np.float32, 'wc',
-                         ext_unit_dict)
-
-        # Item 5 [SDH(NROW,NCOL) (one array for each layer)]
-        if model.verbose:
-            print('   loading SDH...')
-        sdh = Util3d.load(f, model, (nlay, nrow, ncol), np.float32, 'sdh',
-                          ext_unit_dict)
 
         # kwargs needed to construct cuzinf2, cuzinf3, etc. for multispecies
         kwargs = {}
@@ -519,12 +473,12 @@ class Mt3dUzt(Package):
             if model.verbose:
                 print('   loading UZT data for kper {0:5d}'.format(iper + 1))
 
-            # Item 6 (INCUZINF)
+            # Item 4 (INCUZINF)
             line = f.readline()
             m_arr = line.strip().split()
             incuzinf = int(m_arr[0])
 
-            # Item 7 (CUZINF)
+            # Item 5 (CUZINF)
             if incuzinf >= 0:
                 if model.verbose:
                     print('   Reading CUZINF array for kper ' \
@@ -561,12 +515,12 @@ class Mt3dUzt(Package):
                                                   '{0:5d}'.format(iper + 1))
 
             if iet != 0:
-                # Item 8 (INCUZET)
+                # Item 6 (INCUZET)
                 line = f.readline()
                 m_arr = line.strip().split()
                 incuzet = int(m_arr[0])
 
-                # Item 9 (CUZET)
+                # Item 7 (CUZET)
                 if incuzet >= 0:
                     if model.verbose:
                         print('   Reading CUZET array for kper ' \
@@ -603,12 +557,12 @@ class Mt3dUzt(Package):
                                                       '{0:5d}'.format(
                             iper + 1))
 
-                # Item 10 (INCGWET)
+                # Item 8 (INCGWET)
                 line = f.readline()
                 m_arr = line.strip().split()
                 incgwet = int(m_arr[0])
 
-                # Item 11 (CGWET)
+                # Item 9 (CGWET)
                 if model.verbose:
                     if incuzet >= 0:
                         print('   Reading CGWET array for kper ' \
@@ -659,8 +613,8 @@ class Mt3dUzt(Package):
                 model.add_pop_key_list(icbcuz)
 
         # Construct and return uzt package
-        uzt = Mt3dUzt(model, mxuzcon=mxuzcon, icbcuz=icbcuz, iet=iet,
-                      iuzfbnd=iuzfbnd, wc=wc, sdh=sdh, cuzinf=cuzinf,
+        uzt = Mt3dUzt(model, icbcuz=icbcuz, iet=iet,
+                      iuzfbnd=iuzfbnd, cuzinf=cuzinf,
                       cuzet=cuzet, cgwet=cgwet, unitnumber=unitnumber,
                       filenames=filenames, **kwargs)
         return uzt
@@ -668,11 +622,11 @@ class Mt3dUzt(Package):
 
     @staticmethod
     def ftype():
-        return 'UZT'
+        return 'UZT2'
 
     @staticmethod
     def defaultunit():
-        return 47
+        return 7
 
     @staticmethod
     def reservedunit():

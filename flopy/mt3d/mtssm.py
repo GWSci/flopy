@@ -43,7 +43,7 @@ class Mt3dSsm(Package):
         can be specified for additional species by passing additional
         arguments to the Mt3dSsm constructor.  For example, to specify the
         recharge concentration for species two one could use
-        crch2={0: 0., 1: 10*np.ones((nlay, nrow, ncol), dtype=np.float)} as
+        crch2={0: 0., 1: 10*np.ones((nrow, ncol), dtype=np.float)} as
         and additional keyword argument that is passed to Mt3dSsm when making
         the ssm object.
     cevt : Transient2d, scalar, array of floats, or dictionary
@@ -249,7 +249,9 @@ class Mt3dSsm(Package):
                 print("found 'rch' in modflow model, resetting crch to 0.0")
                 crch = 0.0
         except:
-            pass
+            if model.verbose:
+                print('   explicit crcg in file')
+
         if crch is not None:
 
             self.crch = []
@@ -289,11 +291,15 @@ class Mt3dSsm(Package):
 
         self.cevt = None
         try:
-            if cevt is None and (model.mf.evt is not None or model.mf.ets is not None):
-                print("found 'ets'/'evt' in modflow model, resetting cevt to 0.0")
+            if cevt is None and (
+                    model.mf.evt is not None or model.mf.ets is not None):
+                print(
+                    "found 'ets'/'evt' in modflow model, resetting cevt to 0.0")
                 cevt = 0.0
         except:
-            pass
+            if model.verbose:
+                print('   explicit cevt in file')
+
         if cevt is not None:
             self.cevt = []
             t2d = Transient2d(model, (nrow, ncol), np.float32,

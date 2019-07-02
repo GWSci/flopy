@@ -54,22 +54,22 @@ class ModflowGwfevta(mfpackage.MFPackage):
         * save_flows (boolean) keyword to indicate that evapotranspiration flow
           terms will be written to the file specified with "BUDGET FILEOUT" in
           Output Control.
-    tas_filerecord : [tas6_filename]
-        * tas6_filename (string) defines a time-array-series file defining a
-          time-array series that can be used to assign time-varying values. See
-          the Time-Variable Input section for instructions on using the time-
-          array series capability.
-    obs_filerecord : [obs6_filename]
-        * obs6_filename (string) name of input file to define observations for
-          the Evapotranspiration package. See the "Observation utility" section
-          for instructions for preparing observation input files. Table
-          reftable:obstype lists observation type(s) supported by the
-          Evapotranspiration package.
+    timearrayseries : {varname:data} or tas_array data
+        * Contains data for the tas package. Data can be stored in a dictionary
+          containing data for the tas package with variable names as keys and
+          package data as values. Data just for the timearrayseries variable is
+          also acceptable. See tas package documentation for more information.
+    observations : {varname:data} or continuous data
+        * Contains data for the obs package. Data can be stored in a dictionary
+          containing data for the obs package with variable names as keys and
+          package data as values. Data just for the observations variable is
+          also acceptable. See obs package documentation for more information.
     ievt : [integer]
         * ievt (integer) IEVT is the layer number that defines the layer in
           each vertical column where evapotranspiration is applied. If IEVT is
           omitted, evapotranspiration by default is applied to cells in layer
-          1.
+          1. If IEVT is specified, it must be specified as the first variable
+          in the PERIOD block or MODFLOW will terminate with an error.
     surface : [double]
         * surface (double) is the elevation of the ET surface (:math:`L`).
     rate : [double]
@@ -85,7 +85,7 @@ class ModflowGwfevta(mfpackage.MFPackage):
           value specified here for the auxiliary variable is the same as
           auxmultname, then the evapotranspiration rate will be multiplied by
           this array.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -95,97 +95,106 @@ class ModflowGwfevta(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    auxiliary = ListTemplateGenerator(('gwf6', 'evta', 'options', 
+    auxiliary = ListTemplateGenerator(('gwf6', 'evta', 'options',
                                        'auxiliary'))
-    tas_filerecord = ListTemplateGenerator(('gwf6', 'evta', 'options', 
+    tas_filerecord = ListTemplateGenerator(('gwf6', 'evta', 'options',
                                             'tas_filerecord'))
-    obs_filerecord = ListTemplateGenerator(('gwf6', 'evta', 'options', 
+    obs_filerecord = ListTemplateGenerator(('gwf6', 'evta', 'options',
                                             'obs_filerecord'))
     ievt = ArrayTemplateGenerator(('gwf6', 'evta', 'period', 'ievt'))
-    surface = ArrayTemplateGenerator(('gwf6', 'evta', 'period', 
+    surface = ArrayTemplateGenerator(('gwf6', 'evta', 'period',
                                       'surface'))
     rate = ArrayTemplateGenerator(('gwf6', 'evta', 'period', 'rate'))
     depth = ArrayTemplateGenerator(('gwf6', 'evta', 'period', 'depth'))
-    aux = ArrayTemplateGenerator(('gwf6', 'evta', 'period', 
+    aux = ArrayTemplateGenerator(('gwf6', 'evta', 'period',
                                   'aux(iaux)'))
     package_abbr = "gwfevta"
-    package_type = "evta"
+    _package_type = "evta"
     dfn_file_name = "gwf-evta.dfn"
 
-    dfn = [["block options", "name readasarrays", "type keyword", "shape", 
+    dfn = [["block options", "name readasarrays", "type keyword", "shape",
             "reader urword", "optional false", "default_value True"],
-           ["block options", "name fixed_cell", "type keyword", "shape", 
+           ["block options", "name fixed_cell", "type keyword", "shape",
             "reader urword", "optional true"],
-           ["block options", "name auxiliary", "type string", 
+           ["block options", "name auxiliary", "type string",
             "shape (naux)", "reader urword", "optional true"],
-           ["block options", "name auxmultname", "type string", "shape", 
+           ["block options", "name auxmultname", "type string", "shape",
             "reader urword", "optional true"],
-           ["block options", "name print_input", "type keyword", 
+           ["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_flows", "type keyword", 
+           ["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name tas_filerecord", 
-            "type record tas6 filein tas6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name tas6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name tas_filerecord",
+            "type record tas6 filein tas6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package tas",
+            "construct_data tas_array", "parameter_name timearrayseries"],
+           ["block options", "name tas6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name tas6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block options", "name tas6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block options", "name obs_filerecord", 
-            "type record obs6 filein obs6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name obs6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name obs_filerecord",
+            "type record obs6 filein obs6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package obs",
+            "construct_data continuous", "parameter_name observations"],
+           ["block options", "name obs6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name obs6_filename", "type string", 
-            "preserve_case true", "in_record true", "tagged false", 
+           ["block options", "name obs6_filename", "type string",
+            "preserve_case true", "in_record true", "tagged false",
             "reader urword", "optional false"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name ievt", "type integer", 
+           ["block period", "name ievt", "type integer",
             "shape (ncol*nrow; ncpl)", "reader readarray", "optional true"],
-           ["block period", "name surface", "type double precision", 
+           ["block period", "name surface", "type double precision",
             "shape (ncol*nrow; ncpl)", "reader readarray", "default_value 0."],
-           ["block period", "name rate", "type double precision", 
-            "shape (ncol*nrow; ncpl)", "reader readarray", 
+           ["block period", "name rate", "type double precision",
+            "shape (ncol*nrow; ncpl)", "reader readarray",
             "default_value 1.e-3"],
-           ["block period", "name depth", "type double precision", 
-            "shape (ncol*nrow; ncpl)", "reader readarray", 
+           ["block period", "name depth", "type double precision",
+            "shape (ncol*nrow; ncpl)", "reader readarray",
             "default_value 1.0"],
-           ["block period", "name aux(iaux)", "type double precision", 
+           ["block period", "name aux(iaux)", "type double precision",
             "shape (ncol*nrow; ncpl)", "reader readarray"]]
 
     def __init__(self, model, loading_package=False, readasarrays=True,
                  fixed_cell=None, auxiliary=None, auxmultname=None,
                  print_input=None, print_flows=None, save_flows=None,
-                 tas_filerecord=None, obs_filerecord=None, ievt=None,
-                 surface=0., rate=1.e-3, depth=1.0, aux=None, fname=None,
+                 timearrayseries=None, observations=None, ievt=None,
+                 surface=0., rate=1.e-3, depth=1.0, aux=None, filename=None,
                  pname=None, parent_file=None):
-        super(ModflowGwfevta, self).__init__(model, "evta", fname, pname,
-                                             loading_package, parent_file)        
+        super(ModflowGwfevta, self).__init__(model, "evta", filename, pname,
+                                             loading_package, parent_file)
 
         # set up variables
-        self.readasarrays = self.build_mfdata("readasarrays",  readasarrays)
-        self.fixed_cell = self.build_mfdata("fixed_cell",  fixed_cell)
-        self.auxiliary = self.build_mfdata("auxiliary",  auxiliary)
-        self.auxmultname = self.build_mfdata("auxmultname",  auxmultname)
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
-        self.tas_filerecord = self.build_mfdata("tas_filerecord", 
-                                                tas_filerecord)
-        self.obs_filerecord = self.build_mfdata("obs_filerecord", 
-                                                obs_filerecord)
-        self.ievt = self.build_mfdata("ievt",  ievt)
-        self.surface = self.build_mfdata("surface",  surface)
-        self.rate = self.build_mfdata("rate",  rate)
-        self.depth = self.build_mfdata("depth",  depth)
-        self.aux = self.build_mfdata("aux(iaux)",  aux)
+        self.readasarrays = self.build_mfdata("readasarrays", readasarrays)
+        self.fixed_cell = self.build_mfdata("fixed_cell", fixed_cell)
+        self.auxiliary = self.build_mfdata("auxiliary", auxiliary)
+        self.auxmultname = self.build_mfdata("auxmultname", auxmultname)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
+        self._tas_filerecord = self.build_mfdata("tas_filerecord",
+                                                 None)
+        self._tas_package = self.build_child_package("tas", timearrayseries,
+                                                     "tas_array",
+                                                     self._tas_filerecord)
+        self._obs_filerecord = self.build_mfdata("obs_filerecord",
+                                                 None)
+        self._obs_package = self.build_child_package("obs", observations,
+                                                     "continuous",
+                                                     self._obs_filerecord)
+        self.ievt = self.build_mfdata("ievt", ievt)
+        self.surface = self.build_mfdata("surface", surface)
+        self.rate = self.build_mfdata("rate", rate)
+        self.depth = self.build_mfdata("depth", depth)
+        self.aux = self.build_mfdata("aux(iaux)", aux)
+        self._init_complete = True

@@ -7,9 +7,9 @@ import os
 
 
 class ModpathList(Package):
-    '''
+    """
     List package class
-    '''
+    """
 
     def __init__(self, model, extension='list', listunit=7):
         """
@@ -45,7 +45,7 @@ class Modpath(BaseModel):
 
         """
         BaseModel.__init__(self, modelname, simfile_ext, exe_name,
-                           model_ws=model_ws)
+                           model_ws=model_ws, verbose=verbose)
 
         self.version_types = {'modpath': 'MODPATH'}
         self.set_version(version)
@@ -105,7 +105,6 @@ class Modpath(BaseModel):
             assert os.path.exists(
                 external_path), 'external_path does not exist'
             self.external = True
-        self.verbose = verbose
         return
 
     def __repr__(self):
@@ -169,7 +168,7 @@ class Modpath(BaseModel):
              are 'endpoint', 'pathline', and 'timeseries'.
              (default is 'PATHLINE')
         trackdir : str
-            Keywork that defines the MODPATH particle tracking direction.
+            Keyword that defines the MODPATH particle tracking direction.
             Available trackdir's are 'backward' and 'forward'.
             (default is 'forward')
         packages : str or list of strings
@@ -246,7 +245,7 @@ class Modpath(BaseModel):
                         'Error: no well package in the passed model')
                 for kper in range(nper):
                     mflist = self.__mf.wel.stress_period_data[kper]
-                    idx = [mflist['k'], mflist['i'], mflist['j']]
+                    idx = (mflist['k'], mflist['i'], mflist['j'])
                     arr[idx] = 1
                 ngrp = arr.sum()
                 icnt = 0
@@ -336,14 +335,17 @@ class Modpath(BaseModel):
                 model_ws = ''
                 if self.__mf is not None:
                     model_ws = self.__mf.model_ws
-                if os.path.exists(os.path.join(model_ws,package)):
-                    print("detected a particle starting locations file in packages")
-                    assert len(packages) == 1, "if a particle starting locations file is passed" + \
-                                               ", other packages cannot be specified"
+                if os.path.exists(os.path.join(model_ws, package)):
+                    print(
+                        "detected a particle starting locations file in packages")
+                    assert len(
+                        packages) == 1, "if a particle starting locations file is passed" + \
+                                        ", other packages cannot be specified"
                     ParticleGenerationOption = 2
                     strt_file = package
                 else:
-                    raise Exception("package '{0}' not supported".format(package))
+                    raise Exception(
+                        "package '{0}' not supported".format(package))
 
         SimulationType = 1
         if simtype.lower() == 'endpoint':

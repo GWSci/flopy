@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGwfmaw(mfpackage.MFPackage):
@@ -89,17 +89,16 @@ class ModflowGwfmaw(mfpackage.MFPackage):
           compatibility with previous versions of MODFLOW but use of the
           RATE_SCALING option instead of the HEAD_LIMIT option is recommended.
           By default, SHUTDOWN_KAPPA is 0.0001.
-    ts_filerecord : [ts6_filename]
-        * ts6_filename (string) defines a time-series file defining time series
-          that can be used to assign time-varying values. See the "Time-
-          Variable Input" section for instructions on using the time-series
-          capability.
-    obs_filerecord : [obs6_filename]
-        * obs6_filename (string) name of input file to define observations for
-          the MAW package. See the "Observation utility" section for
-          instructions for preparing observation input files. Table
-          reftable:obstype lists observation type(s) supported by the MAW
-          package.
+    timeseries : {varname:data} or timeseries data
+        * Contains data for the ts package. Data can be stored in a dictionary
+          containing data for the ts package with variable names as keys and
+          package data as values. Data just for the timeseries variable is also
+          acceptable. See ts package documentation for more information.
+    observations : {varname:data} or continuous data
+        * Contains data for the obs package. Data can be stored in a dictionary
+          containing data for the obs package with variable names as keys and
+          package data as values. Data just for the observations variable is
+          also acceptable. See obs package documentation for more information.
     mover : boolean
         * mover (boolean) keyword to indicate that this instance of the MAW
           Package can be used with the Water Mover (MVR) Package. When the
@@ -127,16 +126,16 @@ class ModflowGwfmaw(mfpackage.MFPackage):
           equation that is used to calculate the saturated conductance for the
           multi-aquifer well. Possible multi-aquifer well CONDEQN strings
           include: SPECIFIED--character keyword to indicate the multi-aquifer
-          well saturated conductance will be specified. THEIM--character
+          well saturated conductance will be specified. THIEM--character
           keyword to indicate the multi-aquifer well saturated conductance will
-          be calculated using the Theim equation, which considers the cell top
+          be calculated using the Thiem equation, which considers the cell top
           and bottom, aquifer hydraulic conductivity, and effective cell and
           well radius. SKIN--character keyword to indicate that the multi-
           aquifer well saturated conductance will be calculated using the cell
           top and bottom, aquifer and screen hydraulic conductivity, and well
           and skin radius. CUMULATIVE--character keyword to indicate that the
           multi-aquifer well saturated conductance will be calculated using a
-          combination of the Theim and SKIN equations. MEAN--character keyword
+          combination of the Thiem and SKIN equations. MEAN--character keyword
           to indicate the multi-aquifer well saturated conductance will be
           calculated using the aquifer and screen top and bottom, aquifer and
           screen hydraulic conductivity, and well and skin radius.
@@ -177,27 +176,27 @@ class ModflowGwfmaw(mfpackage.MFPackage):
           (DISU) input file, CELLID is the node number for the cell. One or
           more screened intervals can be connected to the same CELLID if
           CONDEQN for a well is MEAN. The program will terminate with an error
-          if MAW wells using SPECIFIED, THEIM, SKIN, or CUMULATIVE conductance
+          if MAW wells using SPECIFIED, THIEM, SKIN, or CUMULATIVE conductance
           equations have more than one connection to the same CELLID.
         * scrn_top (double) value that defines the top elevation of the screen
           for the multi-aquifer well connection. If the specified SCRN_TOP is
           greater than the top of the GWF cell it is set equal to the top of
-          the cell. SCRN_TOP can be any value if CONDEQN is SPECIFIED, THEIM,
+          the cell. SCRN_TOP can be any value if CONDEQN is SPECIFIED, THIEM,
           SKIN, or COMPOSITE and SCRN_TOP is set to the top of the cell.
         * scrn_bot (double) value that defines the bottom elevation of the
           screen for the multi-aquifer well connection. If the specified
           SCRN_BOT is less than the bottom of the GWF cell it is set equal to
           the bottom of the cell. SCRN_BOT can be any value if CONDEQN is
-          SPECIFIED, THEIM, SKIN, or COMPOSITE and SCRN_BOT is set to the
+          SPECIFIED, THIEM, SKIN, or COMPOSITE and SCRN_BOT is set to the
           bottom of the cell.
         * hk_skin (double) value that defines the skin (filter pack) hydraulic
           conductivity (if CONDEQN for the multi-aquifer well is SKIN,
           CUMULATIVE, or MEAN) or conductance (if CONDEQN for the multi-aquifer
           well is SPECIFIED) for each GWF node connected to the multi-aquifer
-          well (NGWFNODES). HK_SKIN can be any value if CONDEQN is THEIM.
+          well (NGWFNODES). HK_SKIN can be any value if CONDEQN is THIEM.
         * radius_skin (double) real value that defines the skin radius (filter
           pack radius) for the multi-aquifer well. RADIUS_SKIN can be any value
-          if CONDEQN is SPECIFIED or THEIM. Otherwise, RADIUS_SKIN must be
+          if CONDEQN is SPECIFIED or THIEM. Otherwise, RADIUS_SKIN must be
           greater than RADIUS for the multi-aquifer well.
     perioddata : [wellno, mawsetting]
         * wellno (integer) integer value that defines the well number
@@ -244,16 +243,16 @@ class ModflowGwfmaw(mfpackage.MFPackage):
             head_limit : [string]
                 * head_limit (string) is the limiting water level (head) in the
                   well, which is the minimum of the well RATE or the well
-                  inflow rate from the aquifer. HEAD_LIMIT is only applied to
-                  discharging wells (RATE :math:`<` 0). HEAD\_LIMIT can be
-                  deactivated by specifying the text string `OFF'. The
-                  HEAD\_LIMIT option is based on the HEAD\_LIMIT functionality
-                  available in the MNW2~\citep{konikow2009} package for
-                  MODFLOW-2005. The HEAD\_LIMIT option has been included to
-                  facilitate backward compatibility with previous versions of
-                  MODFLOW but use of the RATE\_SCALING option instead of the
-                  HEAD\_LIMIT option is recommended. By default, HEAD\_LIMIT is
-                  `OFF'.
+                  inflow rate from the aquifer. HEAD_LIMIT can be applied to
+                  extraction wells (RATE :math:`<` 0) or injection wells (RATE
+                  :math:`>` 0). HEAD\_LIMIT can be deactivated by specifying
+                  the text string `OFF'. The HEAD\_LIMIT option is based on the
+                  HEAD\_LIMIT functionality available in the
+                  MNW2~\citep{konikow2009} package for MODFLOW-2005. The
+                  HEAD\_LIMIT option has been included to facilitate backward
+                  compatibility with previous versions of MODFLOW but use of
+                  the RATE\_SCALING option instead of the HEAD\_LIMIT option is
+                  recommended. By default, HEAD\_LIMIT is `OFF'.
             shutoffrecord : [minrate, maxrate]
                 * minrate (double) is the minimum rate that a well must exceed
                   to shutoff a well during a stress period. The well will shut
@@ -271,13 +270,12 @@ class ModflowGwfmaw(mfpackage.MFPackage):
                   reduce oscillations. maxrate must be greater than MINRATE.
             rate_scalingrecord : [pump_elevation, scaling_length]
                 * pump_elevation (double) is the elevation of the multi-aquifer
-                  well pump (PUMP_ELEVATION). PUMP_ELEVATION cannot be less
+                  well pump (PUMP_ELEVATION). PUMP_ELEVATION should not be less
                   than the bottom elevation (BOTTOM) of the multi-aquifer well.
-                  By default, PUMP_ELEVATION is set equal to the bottom of the
-                  largest GWF node number connected to a MAW well.
                 * scaling_length (double) height above the pump elevation
-                  (SCALING_LENGTH) below which the pumping rate is reduced. The
-                  default value for SCALING_LENGTH is the well radius.
+                  (SCALING_LENGTH). If the simulated well head is below this
+                  elevation (pump elevation plus the scaling length), then the
+                  pumping rate is reduced.
             auxiliaryrecord : [auxname, auxval]
                 * auxname (string) name for the auxiliary variable to be
                   assigned AUXVAL. AUXNAME must match one of the auxiliary
@@ -289,7 +287,7 @@ class ModflowGwfmaw(mfpackage.MFPackage):
                   Variable Input" section), values can be obtained from a time
                   series by entering the time-series name in place of a numeric
                   value.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -299,200 +297,202 @@ class ModflowGwfmaw(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    auxiliary = ListTemplateGenerator(('gwf6', 'maw', 'options', 
+    auxiliary = ListTemplateGenerator(('gwf6', 'maw', 'options',
                                        'auxiliary'))
-    stage_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options', 
+    stage_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options',
                                               'stage_filerecord'))
-    budget_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options', 
+    budget_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options',
                                                'budget_filerecord'))
-    ts_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options', 
+    ts_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options',
                                            'ts_filerecord'))
-    obs_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options', 
+    obs_filerecord = ListTemplateGenerator(('gwf6', 'maw', 'options',
                                             'obs_filerecord'))
-    packagedata = ListTemplateGenerator(('gwf6', 'maw', 'packagedata', 
+    packagedata = ListTemplateGenerator(('gwf6', 'maw', 'packagedata',
                                          'packagedata'))
-    connectiondata = ListTemplateGenerator(('gwf6', 'maw', 
-                                            'connectiondata', 
+    connectiondata = ListTemplateGenerator(('gwf6', 'maw',
+                                            'connectiondata',
                                             'connectiondata'))
-    perioddata = ListTemplateGenerator(('gwf6', 'maw', 'period', 
+    perioddata = ListTemplateGenerator(('gwf6', 'maw', 'period',
                                         'perioddata'))
     package_abbr = "gwfmaw"
-    package_type = "maw"
+    _package_type = "maw"
     dfn_file_name = "gwf-maw.dfn"
 
-    dfn = [["block options", "name auxiliary", "type string", 
+    dfn = [["block options", "name auxiliary", "type string",
             "shape (naux)", "reader urword", "optional true"],
-           ["block options", "name boundnames", "type keyword", "shape", 
+           ["block options", "name boundnames", "type keyword", "shape",
             "reader urword", "optional true"],
-           ["block options", "name print_input", "type keyword", 
+           ["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_head", "type keyword", 
+           ["block options", "name print_head", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_flows", "type keyword", 
+           ["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name stage_filerecord", 
-            "type record head fileout headfile", "shape", "reader urword", 
+           ["block options", "name stage_filerecord",
+            "type record head fileout headfile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name head", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name head", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name headfile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name headfile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name budget_filerecord", 
-            "type record budget fileout budgetfile", "shape", "reader urword", 
+           ["block options", "name budget_filerecord",
+            "type record budget fileout budgetfile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name budget", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name budget", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name fileout", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name fileout", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name budgetfile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name budgetfile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name no_well_storage", "type keyword", 
+           ["block options", "name no_well_storage", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name flowing_wells", "type keyword", 
+           ["block options", "name flowing_wells", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name shutdown_theta", "type double precision", 
+           ["block options", "name shutdown_theta", "type double precision",
             "reader urword", "optional true"],
-           ["block options", "name shutdown_kappa", "type double precision", 
+           ["block options", "name shutdown_kappa", "type double precision",
             "reader urword", "optional true"],
-           ["block options", "name ts_filerecord", 
-            "type record ts6 filein ts6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name ts6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name ts_filerecord",
+            "type record ts6 filein ts6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package ts",
+            "construct_data timeseries", "parameter_name timeseries"],
+           ["block options", "name ts6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name ts6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block options", "name ts6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block options", "name obs_filerecord", 
-            "type record obs6 filein obs6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name obs6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name obs_filerecord",
+            "type record obs6 filein obs6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package obs",
+            "construct_data continuous", "parameter_name observations"],
+           ["block options", "name obs6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name obs6_filename", "type string", 
-            "preserve_case true", "in_record true", "tagged false", 
+           ["block options", "name obs6_filename", "type string",
+            "preserve_case true", "in_record true", "tagged false",
             "reader urword", "optional false"],
-           ["block options", "name mover", "type keyword", "tagged true", 
+           ["block options", "name mover", "type keyword", "tagged true",
             "reader urword", "optional true"],
-           ["block dimensions", "name nmawwells", "type integer", 
+           ["block dimensions", "name nmawwells", "type integer",
             "reader urword", "optional false"],
-           ["block packagedata", "name packagedata", 
-            "type recarray wellno radius bottom strt condeqn ngwfnodes aux " 
-            "boundname", 
+           ["block packagedata", "name packagedata",
+            "type recarray wellno radius bottom strt condeqn ngwfnodes aux "
+            "boundname",
             "shape (nmawwells)", "reader urword"],
-           ["block packagedata", "name wellno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name wellno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block packagedata", "name radius", "type double precision", 
+           ["block packagedata", "name radius", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name bottom", "type double precision", 
+           ["block packagedata", "name bottom", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name strt", "type double precision", 
+           ["block packagedata", "name strt", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name condeqn", "type string", "shape", 
+           ["block packagedata", "name condeqn", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name ngwfnodes", "type integer", "shape", 
+           ["block packagedata", "name ngwfnodes", "type integer", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name aux", "type double precision", 
-            "in_record true", "tagged false", "shape (naux)", "reader urword", 
+           ["block packagedata", "name aux", "type double precision",
+            "in_record true", "tagged false", "shape (naux)", "reader urword",
             "time_series true", "optional true"],
-           ["block packagedata", "name boundname", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name boundname", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "optional true"],
-           ["block connectiondata", "name connectiondata", 
-            "type recarray wellno icon cellid scrn_top scrn_bot hk_skin " 
-            "radius_skin", 
+           ["block connectiondata", "name connectiondata",
+            "type recarray wellno icon cellid scrn_top scrn_bot hk_skin "
+            "radius_skin",
             "reader urword"],
-           ["block connectiondata", "name wellno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block connectiondata", "name wellno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block connectiondata", "name icon", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block connectiondata", "name icon", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block connectiondata", "name cellid", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block connectiondata", "name cellid", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block connectiondata", "name scrn_top", 
-            "type double precision", "shape", "tagged false", 
+           ["block connectiondata", "name scrn_top",
+            "type double precision", "shape", "tagged false",
             "in_record true", "reader urword"],
-           ["block connectiondata", "name scrn_bot", 
-            "type double precision", "shape", "tagged false", 
+           ["block connectiondata", "name scrn_bot",
+            "type double precision", "shape", "tagged false",
             "in_record true", "reader urword"],
-           ["block connectiondata", "name hk_skin", "type double precision", 
+           ["block connectiondata", "name hk_skin", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block connectiondata", "name radius_skin", 
-            "type double precision", "shape", "tagged false", 
+           ["block connectiondata", "name radius_skin",
+            "type double precision", "shape", "tagged false",
             "in_record true", "reader urword"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name perioddata", 
+           ["block period", "name perioddata",
             "type recarray wellno mawsetting", "shape", "reader urword"],
-           ["block period", "name wellno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name wellno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name mawsetting", 
-            "type keystring status flowing_wellrecord rate well_head " 
-            "head_limit shutoffrecord rate_scalingrecord auxiliaryrecord", 
+           ["block period", "name mawsetting",
+            "type keystring status flowing_wellrecord rate well_head "
+            "head_limit shutoffrecord rate_scalingrecord auxiliaryrecord",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name status", "type string", "shape", 
+           ["block period", "name status", "type string", "shape",
             "tagged true", "in_record true", "reader urword"],
-           ["block period", "name flowing_wellrecord", 
-            "type record flowing_well fwelev fwcond fwrlen", "shape", 
+           ["block period", "name flowing_wellrecord",
+            "type record flowing_well fwelev fwcond fwrlen", "shape",
             "tagged", "in_record true", "reader urword"],
-           ["block period", "name flowing_well", "type keyword", "shape", 
+           ["block period", "name flowing_well", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name fwelev", "type double precision", "shape", 
+           ["block period", "name fwelev", "type double precision", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name fwcond", "type double precision", "shape", 
+           ["block period", "name fwcond", "type double precision", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name fwrlen", "type double precision", "shape", 
+           ["block period", "name fwrlen", "type double precision", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name rate", "type double precision", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name rate", "type double precision", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name well_head", "type double precision", 
-            "shape", "tagged true", "in_record true", "reader urword", 
+           ["block period", "name well_head", "type double precision",
+            "shape", "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name head_limit", "type string", "shape", 
+           ["block period", "name head_limit", "type string", "shape",
             "tagged true", "in_record true", "reader urword"],
-           ["block period", "name shutoffrecord", 
-            "type record shut_off minrate maxrate", "shape", "tagged", 
+           ["block period", "name shutoffrecord",
+            "type record shut_off minrate maxrate", "shape", "tagged",
             "in_record true", "reader urword"],
-           ["block period", "name shut_off", "type keyword", "shape", 
+           ["block period", "name shut_off", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name minrate", "type double precision", 
+           ["block period", "name minrate", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name maxrate", "type double precision", 
+           ["block period", "name maxrate", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name rate_scalingrecord", 
-            "type record rate_scaling pump_elevation scaling_length", "shape", 
+           ["block period", "name rate_scalingrecord",
+            "type record rate_scaling pump_elevation scaling_length", "shape",
             "tagged", "in_record true", "reader urword"],
-           ["block period", "name rate_scaling", "type keyword", "shape", 
+           ["block period", "name rate_scaling", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name pump_elevation", "type double precision", 
+           ["block period", "name pump_elevation", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name scaling_length", "type double precision", 
+           ["block period", "name scaling_length", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name auxiliaryrecord", 
-            "type record auxiliary auxname auxval", "shape", "tagged", 
+           ["block period", "name auxiliaryrecord",
+            "type record auxiliary auxname auxval", "shape", "tagged",
             "in_record true", "reader urword"],
-           ["block period", "name auxiliary", "type keyword", "shape", 
+           ["block period", "name auxiliary", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name auxname", "type string", "shape", 
+           ["block period", "name auxname", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name auxval", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name auxval", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"]]
 
     def __init__(self, model, loading_package=False, auxiliary=None,
@@ -500,36 +500,44 @@ class ModflowGwfmaw(mfpackage.MFPackage):
                  print_flows=None, save_flows=None, stage_filerecord=None,
                  budget_filerecord=None, no_well_storage=None,
                  flowing_wells=None, shutdown_theta=None, shutdown_kappa=None,
-                 ts_filerecord=None, obs_filerecord=None, mover=None,
+                 timeseries=None, observations=None, mover=None,
                  nmawwells=None, packagedata=None, connectiondata=None,
-                 perioddata=None, fname=None, pname=None, parent_file=None):
-        super(ModflowGwfmaw, self).__init__(model, "maw", fname, pname,
-                                            loading_package, parent_file)        
+                 perioddata=None, filename=None, pname=None, parent_file=None):
+        super(ModflowGwfmaw, self).__init__(model, "maw", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.auxiliary = self.build_mfdata("auxiliary",  auxiliary)
-        self.boundnames = self.build_mfdata("boundnames",  boundnames)
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_head = self.build_mfdata("print_head",  print_head)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
-        self.stage_filerecord = self.build_mfdata("stage_filerecord", 
+        self.auxiliary = self.build_mfdata("auxiliary", auxiliary)
+        self.boundnames = self.build_mfdata("boundnames", boundnames)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_head = self.build_mfdata("print_head", print_head)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
+        self.stage_filerecord = self.build_mfdata("stage_filerecord",
                                                   stage_filerecord)
-        self.budget_filerecord = self.build_mfdata("budget_filerecord", 
+        self.budget_filerecord = self.build_mfdata("budget_filerecord",
                                                    budget_filerecord)
-        self.no_well_storage = self.build_mfdata("no_well_storage", 
+        self.no_well_storage = self.build_mfdata("no_well_storage",
                                                  no_well_storage)
-        self.flowing_wells = self.build_mfdata("flowing_wells",  flowing_wells)
-        self.shutdown_theta = self.build_mfdata("shutdown_theta", 
+        self.flowing_wells = self.build_mfdata("flowing_wells", flowing_wells)
+        self.shutdown_theta = self.build_mfdata("shutdown_theta",
                                                 shutdown_theta)
-        self.shutdown_kappa = self.build_mfdata("shutdown_kappa", 
+        self.shutdown_kappa = self.build_mfdata("shutdown_kappa",
                                                 shutdown_kappa)
-        self.ts_filerecord = self.build_mfdata("ts_filerecord",  ts_filerecord)
-        self.obs_filerecord = self.build_mfdata("obs_filerecord", 
-                                                obs_filerecord)
-        self.mover = self.build_mfdata("mover",  mover)
-        self.nmawwells = self.build_mfdata("nmawwells",  nmawwells)
-        self.packagedata = self.build_mfdata("packagedata",  packagedata)
-        self.connectiondata = self.build_mfdata("connectiondata", 
+        self._ts_filerecord = self.build_mfdata("ts_filerecord",
+                                                None)
+        self._ts_package = self.build_child_package("ts", timeseries,
+                                                    "timeseries",
+                                                    self._ts_filerecord)
+        self._obs_filerecord = self.build_mfdata("obs_filerecord",
+                                                 None)
+        self._obs_package = self.build_child_package("obs", observations,
+                                                     "continuous",
+                                                     self._obs_filerecord)
+        self.mover = self.build_mfdata("mover", mover)
+        self.nmawwells = self.build_mfdata("nmawwells", nmawwells)
+        self.packagedata = self.build_mfdata("packagedata", packagedata)
+        self.connectiondata = self.build_mfdata("connectiondata",
                                                 connectiondata)
-        self.perioddata = self.build_mfdata("perioddata",  perioddata)
+        self.perioddata = self.build_mfdata("perioddata", perioddata)
+        self._init_complete = True

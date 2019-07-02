@@ -9,7 +9,6 @@ import sys
 
 from ..mbase import BaseModel
 from ..modflow import Modflow
-from ..version import __version__
 
 
 class LgrChild():
@@ -37,7 +36,8 @@ class LgrChild():
         self.npcend = npcend
         self.ncpp = ncpp
         if isinstance(ncppl, int):
-            self.ncppl = [ncppl]
+            nlaychild = nplend - nplbeg + 1
+            self.ncppl = nlaychild * [ncppl]
         else:
             self.ncppl = ncppl
 
@@ -98,7 +98,7 @@ class ModflowLgr(BaseModel):
                  external_path=None,
                  verbose=False, **kwargs):
         BaseModel.__init__(self, modelname, namefile_ext, exe_name, model_ws,
-                           structured=True, **kwargs)
+                           structured=True, verbose=verbose, **kwargs)
         self.version_types = {'mflgr': 'MODFLOW-LGR'}
 
         self.set_version(version)
@@ -106,8 +106,6 @@ class ModflowLgr(BaseModel):
         # external option stuff
         self.array_free_format = True
         self.array_format = 'modflow'
-
-        self.verbose = verbose
 
         self.iupbhsv = iupbhsv
         self.iupbfsv = iupbfsv
@@ -134,18 +132,18 @@ class ModflowLgr(BaseModel):
         # convert iupbhsv, iupbhsv, iucbhsv, and iucbfsv units from
         # external_files to output_files
         ibhsv = self.iupbhsv
-        ibfsv = self.iupbhsv
+        ibfsv = self.iupbfsv
         if ibhsv > 0:
-            self.parent.add_output_file(ibhsv)
+            self.parent.add_output_file(ibhsv, binflag=False)
         if ibfsv > 0:
-            self.parent.add_output_file(ibfsv)
+            self.parent.add_output_file(ibfsv, binflag=False)
         for child, child_data in zip(self.children_models, self.children_data):
             ibhsv = child_data.iucbhsv
             ibfsv = child_data.iucbfsv
             if ibhsv > 0:
-                child.add_output_file(ibhsv)
+                child.add_output_file(ibhsv, binflag=False)
             if ibfsv > 0:
-                child.add_output_file(ibfsv)
+                child.add_output_file(ibfsv, binflag=False)
 
         if external_path is not None:
             if os.path.exists(os.path.join(model_ws, external_path)):
@@ -154,7 +152,6 @@ class ModflowLgr(BaseModel):
             else:
                 os.makedirs(os.path.join(model_ws, external_path))
         self.external_path = external_path
-        self.verbose = verbose
 
         return
 
@@ -219,13 +216,13 @@ class ModflowLgr(BaseModel):
         return rpth
 
     def get_namefiles(self):
-        '''
+        """
         Get the namefiles (with path) of the parent and children models
-        
+
         Returns
         -------
         namefiles : list
-        
+
 
         Examples
         --------
@@ -234,7 +231,7 @@ class ModflowLgr(BaseModel):
         >>> lgr = flopy.modflowlgr.ModflowLgr.load(f)
         >>> namefiles = lgr.get_namefiles()
 
-        '''
+        """
         pth = os.path.join(self.parent._model_ws, self.parent.namefile)
         namefiles = [pth]
         for child in self.children_models:
@@ -425,7 +422,7 @@ class ModflowLgr(BaseModel):
         ----------
         f : MODFLOW name file
             File to load.
-        
+
         model_ws : model workspace path
 
         load_only : (optional) filetype(s) to load (e.g. ["bas6", "lpf"])

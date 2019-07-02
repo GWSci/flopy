@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGnc(mfpackage.MFPackage):
@@ -72,7 +72,11 @@ class ModflowGnc(mfpackage.MFPackage):
           node in CELLIDSJ. Note that if the number of actual contributing
           cells is less than NUMALPHAJ for any ghost node, then dummy CELLIDS
           should be inserted with an associated contributing factor of zero.
-    fname : String
+          The sum of ALPHASJ should be less than one. This is because one minus
+          the sum of ALPHASJ is equal to the alpha term (alpha n in equation
+          4-61 of the GWF Model report) that is multiplied by the head in cell
+          n.
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -84,45 +88,46 @@ class ModflowGnc(mfpackage.MFPackage):
     """
     gncdata = ListTemplateGenerator(('gnc', 'gncdata', 'gncdata'))
     package_abbr = "gnc"
-    package_type = "gnc"
+    _package_type = "gnc"
     dfn_file_name = "gwf-gnc.dfn"
 
-    dfn = [["block options", "name print_input", "type keyword", 
+    dfn = [["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name explicit", "type keyword", "tagged true", 
+           ["block options", "name explicit", "type keyword", "tagged true",
             "reader urword", "optional true"],
-           ["block dimensions", "name numgnc", "type integer", 
+           ["block dimensions", "name numgnc", "type integer",
             "reader urword", "optional false"],
-           ["block dimensions", "name numalphaj", "type integer", 
+           ["block dimensions", "name numalphaj", "type integer",
             "reader urword", "optional false"],
-           ["block gncdata", "name gncdata", 
-            "type recarray cellidn cellidm cellidsj alphasj", 
+           ["block gncdata", "name gncdata",
+            "type recarray cellidn cellidm cellidsj alphasj",
             "shape (maxbound)", "reader urword"],
-           ["block gncdata", "name cellidn", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block gncdata", "name cellidn", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block gncdata", "name cellidm", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block gncdata", "name cellidm", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block gncdata", "name cellidsj", "type integer", 
-            "shape (numalphaj)", "tagged false", "in_record true", 
+           ["block gncdata", "name cellidsj", "type integer",
+            "shape (numalphaj)", "tagged false", "in_record true",
             "reader urword", "numeric_index true"],
-           ["block gncdata", "name alphasj", "type double precision", 
-            "shape (numalphaj)", "tagged false", "in_record true", 
+           ["block gncdata", "name alphasj", "type double precision",
+            "shape (numalphaj)", "tagged false", "in_record true",
             "reader urword"]]
 
     def __init__(self, simulation, loading_package=False, print_input=None,
                  print_flows=None, explicit=None, numgnc=None, numalphaj=None,
-                 gncdata=None, fname=None, pname=None, parent_file=None):
-        super(ModflowGnc, self).__init__(simulation, "gnc", fname, pname,
-                                         loading_package, parent_file)        
+                 gncdata=None, filename=None, pname=None, parent_file=None):
+        super(ModflowGnc, self).__init__(simulation, "gnc", filename, pname,
+                                         loading_package, parent_file)
 
         # set up variables
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.explicit = self.build_mfdata("explicit",  explicit)
-        self.numgnc = self.build_mfdata("numgnc",  numgnc)
-        self.numalphaj = self.build_mfdata("numalphaj",  numalphaj)
-        self.gncdata = self.build_mfdata("gncdata",  gncdata)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.explicit = self.build_mfdata("explicit", explicit)
+        self.numgnc = self.build_mfdata("numgnc", numgnc)
+        self.numalphaj = self.build_mfdata("numalphaj", numalphaj)
+        self.gncdata = self.build_mfdata("gncdata", gncdata)
+        self._init_complete = True

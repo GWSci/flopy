@@ -12,7 +12,7 @@ import sys
 import numpy as np
 from .mfpar import ModflowPar as mfpar
 from ..pakbase import Package
-from ..utils import Util2d, Util3d
+from ..utils import Util2d, Util3d, read1d
 from ..utils.flopy_io import line_parse
 
 
@@ -39,18 +39,18 @@ class ModflowUpw(Package):
         that are no-flow cells at the start of a model simulation. (default
         is -1.e30).
     iphdry : int
-        iphdry is a flag that indicates whether groundwater head will be set to
-        hdry when the groundwater head is less than 0.0001 above the cell bottom
-        (units defined by lenuni in the discretization package). If iphdry=0,
-        then head will not be set to hdry. If iphdry>0, then head will be set to
-        hdry. If the head solution from one simulation will be used as starting
-        heads for a subsequent simulation, or if the Observation Process is used
-        (Harbaugh and others, 2000), then hdry should not be printed to the output
-        file for dry cells (that is, the upw package input variable should be set
-        as iphdry=0). (default is 0)
+        iphdry is a flag that indicates whether groundwater head will be set
+        to hdry when the groundwater head is less than 0.0001 above the cell
+        bottom (units defined by lenuni in the discretization package). If
+        iphdry=0, then head will not be set to hdry. If iphdry>0, then head
+        will be set to hdry. If the head solution from one simulation will be
+        used as starting heads for a subsequent simulation, or if the
+        Observation Process is used (Harbaugh and others, 2000), then hdry
+        should not be printed to the output file for dry cells (that is, the
+        upw package input variable should be set as iphdry=0). (default is 0)
     noparcheck : bool
-        noparcheck turns off the checking that a value is defined for all cells
-        when parameters are used to define layer data.
+        noparcheck turns off the checking that a value is defined for all
+        cells when parameters are used to define layer data.
     laytyp : int or array of ints (nlay)
         Layer type (default is 0).
     layavg : int or array of ints (nlay)
@@ -69,11 +69,11 @@ class ModflowUpw(Package):
         value of CHANI for each layer. The horizontal anisotropy is the ratio
         of the hydraulic conductivity along columns (the Y direction) to the
         hydraulic conductivity along rows (the X direction).
-    layvka : float or array of floats (nlay)
+    layvka : int or array of ints (nlay)
         a flag for each layer that indicates whether variable VKA is vertical
         hydraulic conductivity or the ratio of horizontal to vertical
         hydraulic conductivity.
-    laywet : float or array of floats (nlay)
+    laywet : int or array of ints (nlay)
         contains a flag for each layer that indicates if wetting is active.
         laywet should always be zero for the UPW Package because all cells
         initially active are wettable.
@@ -170,7 +170,6 @@ class ModflowUpw(Package):
         else:
             ipakcb = 0
 
-
         # Fill namefile items
         name = [ModflowUpw.ftype()]
         units = [unitnumber]
@@ -179,10 +178,10 @@ class ModflowUpw(Package):
         # set package name
         fname = [filenames[0]]
 
-        # Call ancestor's init to set self.parent, extension, name and unit number
+        # Call ancestor's init to set self.parent, extension, name and
+        # unit number
         Package.__init__(self, model, extension=extension, name=name,
                          unit_number=units, extra=extra, filenames=fname)
-
 
         self.heading = '# {} package for '.format(self.name[0]) + \
                        ' {}, '.format(model.version_types[model.version]) + \
@@ -192,14 +191,16 @@ class ModflowUpw(Package):
         nrow, ncol, nlay, nper = self.parent.nrow_ncol_nlay_nper
         # item 1
         self.ipakcb = ipakcb
-        self.hdry = hdry  # Head in cells that are converted to dry during a simulation
-        self.npupw = 0  # number of UPW parameters
+        # Head in cells that are converted to dry during a simulation
+        self.hdry = hdry
+        # number of UPW parameters
+        self.npupw = 0
         self.iphdry = iphdry
-        self.laytyp = Util2d(model, (nlay,), np.int, laytyp, name='laytyp')
-        self.layavg = Util2d(model, (nlay,), np.int, layavg, name='layavg')
-        self.chani = Util2d(model, (nlay,), np.int, chani, name='chani')
-        self.layvka = Util2d(model, (nlay,), np.int, layvka, name='vka')
-        self.laywet = Util2d(model, (nlay,), np.int, laywet, name='laywet')
+        self.laytyp = Util2d(model, (nlay,), np.int32, laytyp, name='laytyp')
+        self.layavg = Util2d(model, (nlay,), np.int32, layavg, name='layavg')
+        self.chani = Util2d(model, (nlay,), np.float32, chani, name='chani')
+        self.layvka = Util2d(model, (nlay,), np.int32, layvka, name='vka')
+        self.laywet = Util2d(model, (nlay,), np.int32, laywet, name='laywet')
 
         self.options = ' '
         if noparcheck: self.options = self.options + 'NOPARCHECK  '
@@ -238,10 +239,11 @@ class ModflowUpw(Package):
         None
 
         """
-        if check:  # allows turning off package checks when writing files at model level
+        # allows turning off package checks when writing files at model level
+        if check:
             self.check(f='{}.chk'.format(self.name[0]),
                        verbose=self.parent.verbose, level=1)
-        nrow, ncol, nlay, nper = self.parent.nrow_ncol_nlay_nper  # Open file for writing
+        nrow, ncol, nlay, nper = self.parent.nrow_ncol_nlay_nper
         if f is not None:
             f_upw = f
         else:
@@ -255,15 +257,15 @@ class ModflowUpw(Package):
                                                                    self.iphdry,
                                                                    self.options))
         # LAYTYP array
-        f_upw.write(self.laytyp.string);
+        f_upw.write(self.laytyp.string)
         # LAYAVG array
-        f_upw.write(self.layavg.string);
+        f_upw.write(self.layavg.string)
         # CHANI array
-        f_upw.write(self.chani.string);
+        f_upw.write(self.chani.string)
         # LAYVKA array
         f_upw.write(self.layvka.string)
         # LAYWET array
-        f_upw.write(self.laywet.string);
+        f_upw.write(self.laywet.string)
         # Item 7: WETFCT, IWETIT, IHDWET
         iwetdry = self.laywet.sum()
         if iwetdry > 0:
@@ -347,45 +349,44 @@ class ModflowUpw(Package):
                                       float(t[1]), \
                                       int(t[2]), \
                                       int(t[3])
-        # if ipakcb != 0:
-        #     model.add_pop_key_list(ipakcb)
-        #     ipakcb = 53
+
         # options
         noparcheck = False
         if len(t) > 3:
             for k in range(3, len(t)):
                 if 'NOPARCHECK' in t[k].upper():
                     noparcheck = True
+
         # LAYTYP array
         if model.verbose:
             print('   loading LAYTYP...')
-        line = f.readline()
-        t = line.strip().split()
-        laytyp = np.array((t[0:nlay]), dtype=np.int)
+        laytyp = np.empty((nlay,), dtype=np.int32)
+        laytyp = read1d(f, laytyp)
+
         # LAYAVG array
         if model.verbose:
             print('   loading LAYAVG...')
-        line = f.readline()
-        t = line.strip().split()
-        layavg = np.array((t[0:nlay]), dtype=np.int)
+        layavg = np.empty((nlay,), dtype=np.int32)
+        layavg = read1d(f, layavg)
+
         # CHANI array
         if model.verbose:
             print('   loading CHANI...')
-        line = f.readline()
-        t = line.strip().split()
-        chani = np.array((t[0:nlay]), dtype=np.float32)
+        chani = np.empty((nlay,), dtype=np.float32)
+        chani = read1d(f, chani)
+
         # LAYVKA array
         if model.verbose:
             print('   loading LAYVKA...')
-        line = f.readline()
-        t = line.strip().split()
-        layvka = np.array((t[0:nlay]), dtype=np.int)
+        layvka = np.empty((nlay,), dtype=np.int32)
+        layvka = read1d(f, layvka)
+
         # LAYWET array
         if model.verbose:
             print('   loading LAYWET...')
-        line = f.readline()
-        t = line.strip().split()
-        laywet = np.array((t[0:nlay]), dtype=np.int)
+        laywet = np.empty((nlay,), dtype=np.int32)
+        laywet = read1d(f, laywet)
+
         # Item 7: WETFCT, IWETIT, IHDWET
         wetfct, iwetit, ihdwet = None, None, None
         iwetdry = laywet.sum()
@@ -500,6 +501,7 @@ class ModflowUpw(Package):
         if check:
             upw.check(f='{}.chk'.format(upw.name[0]),
                       verbose=upw.parent.verbose, level=0)
+
         # return upw object
         return upw
 

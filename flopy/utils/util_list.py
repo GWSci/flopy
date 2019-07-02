@@ -12,9 +12,16 @@ from __future__ import division, print_function
 import os
 import warnings
 import numpy as np
+from ..datbase import DataInterface, DataListInterface, DataType
+
+try:
+    from numpy.lib import NumpyVersion
+    numpy114 = NumpyVersion(np.__version__) >= '1.14.0'
+except ImportError:
+    numpy114 = False
 
 
-class MfList(object):
+class MfList(DataInterface, DataListInterface):
     """
     a generic object for handling transient boundary condition lists
 
@@ -58,21 +65,17 @@ class MfList(object):
             for attr in data.__dict__.items():
                 setattr(self, attr[0], attr[1])
             if model is None:
-                self.model = package.parent
+                self._model = package.parent
             else:
-                self.model = model
-            self.package = package
+                self._model = model
+            self._package = package
             return
 
-        self.package = package
+        self._package = package
         if model is None:
-            self.model = package.parent
+            self._model = package.parent
         else:
-            self.model = model
-        try:
-            self.sr = self.model.sr
-        except:
-            self.sr = None
+            self._model = model
         if dtype is None:
             assert isinstance(self.package.dtype, np.dtype)
             self.__dtype = self.package.dtype
@@ -84,8 +87,39 @@ class MfList(object):
         if data is not None:
             self.__cast_data(data)
         self.__df = None
+        if list_free_format is None:
+            if package.parent.version == "mf2k":
+                list_free_format = False
         self.list_free_format = list_free_format
         return
+
+    @property
+    def name(self):
+        return self.package.name
+
+    @property
+    def mg(self):
+        return self._model.modelgrid
+
+    @property
+    def sr(self):
+        return self.mg.sr
+
+    @property
+    def model(self):
+        return self._model
+
+    @property
+    def package(self):
+        return self._package
+
+    @property
+    def data_type(self):
+        return DataType.transientlist
+
+    @property
+    def plotable(self):
+        return True
 
     def get_empty(self, ncell=0):
         d = np.zeros((ncell, len(self.dtype)), dtype=self.dtype)
@@ -94,9 +128,9 @@ class MfList(object):
 
     def export(self, f, **kwargs):
         from flopy import export
-        return export.utils.mflist_helper(f, self, **kwargs)
+        return export.utils.mflist_export(f, self, **kwargs)
 
-    def append(self,other):
+    def append(self, other):
         """ append the recarrays from one MfList to another
         Parameters
         ----------
@@ -106,12 +140,13 @@ class MfList(object):
         -------
             dict of {kper:recarray}
         """
-        if not isinstance(other,MfList):
-            other = MfList(self.package,data=other,dtype=self.dtype,
-                           model=self.model,
+        if not isinstance(other, MfList):
+            other = MfList(self.package, data=other, dtype=self.dtype,
+                           model=self._model,
                            list_free_format=self.list_free_format)
-        assert isinstance(other,MfList),"MfList.append(): other arg must be "+\
-                                        "MfList or dict, not {0}".format(type(other))
+        msg = "MfList.append(): other arg must be " + \
+              "MfList or dict, not {0}".format(type(other))
+        assert isinstance(other, MfList), msg
 
         other_kpers = list(other.data.keys())
         other_kpers.sort()
@@ -120,29 +155,25 @@ class MfList(object):
         self_kpers.sort()
 
         new_dict = {}
-        for kper in range(self.model.nper):
+        for kper in range(self._model.nper):
             other_data = other[kper].copy()
             self_data = self[kper].copy()
 
             other_len = other_data.shape[0]
             self_len = self_data.shape[0]
 
-
-
-            if (other_len == 0 and self_len == 0) or\
-               (kper not in self_kpers and kper not in other_kpers):
+            if (other_len == 0 and self_len == 0) or \
+                    (kper not in self_kpers and kper not in other_kpers):
                 continue
-
-
             elif self_len == 0:
                 new_dict[kper] = other_data
             elif other_len == 0:
                 new_dict[kper] = self_data
             else:
                 new_len = other_data.shape[0] + self_data.shape[0]
-                new_data = np.recarray(new_len,dtype=self.dtype)
+                new_data = np.recarray(new_len, dtype=self.dtype)
                 new_data[:self_len] = self_data
-                new_data[self_len:self_len+other_len] = other_data
+                new_data[self_len:self_len + other_len] = other_data
                 new_dict[kper] = new_data
 
 
@@ -162,12 +193,14 @@ class MfList(object):
         if not isinstance(fields, list):
             fields = [fields]
         names = [n for n in self.dtype.names if n not in fields]
-        dtype = np.dtype([(k, d) for k, d in self.dtype.descr if k not in fields])
+        dtype = np.dtype(
+            [(k, d) for k, d in self.dtype.descr if k not in fields])
         spd = {}
         for k, v in self.data.items():
             # because np 1.9 doesn't support indexing by list of columns
             newarr = np.array([self.data[k][n] for n in names]).transpose()
-            newarr = np.array(list(map(tuple, newarr)), dtype=dtype).view(np.recarray)
+            newarr = np.array(list(map(tuple, newarr)), dtype=dtype).view(
+                np.recarray)
             for n in dtype.names:
                 newarr[n] = self.data[k][n]
             spd[k] = newarr
@@ -210,9 +243,10 @@ class MfList(object):
             mxact = max(mxact, self.get_itmp(kper))
         return mxact
 
-    # Get the numpy savetxt-style fmt string that corresponds to the dtype
     @property
     def fmt_string(self):
+        """Returns a C-style fmt string for numpy savetxt that corresponds to
+        the dtype"""
         if self.list_free_format is not None:
             use_free = self.list_free_format
         else:
@@ -222,32 +256,40 @@ class MfList(object):
             # mt3d list data is fixed format
             if 'mt3d' in self.package.parent.version.lower():
                 use_free = False
-        fmt_string = ''
+        fmts = []
         for field in self.dtype.descr:
             vtype = field[1][1].lower()
-            if vtype == 'i':
+            if vtype in ('i', 'b'):
                 if use_free:
-                    fmt_string += ' %9d'
+                    fmts.append('%9d')
                 else:
-                    fmt_string += '%10d'
+                    fmts.append('%10d')
             elif vtype == 'f':
                 if use_free:
-                    fmt_string += ' %15.7E'
+                    if numpy114:
+                        # Use numpy's floating-point formatter (Dragon4)
+                        fmts.append('%15s')
+                    else:
+                        fmts.append('%15.7E')
                 else:
-                    fmt_string += '%10G'
-
+                    fmts.append('%10G')
             elif vtype == 'o':
                 if use_free:
-                    fmt_string += ' %9s'
+                    fmts.append('%9s')
                 else:
-                    fmt_string += '%10s'
+                    fmts.append('%10s')
             elif vtype == 's':
-                raise Exception("MfList error: '\str\' type found it dtype." + \
-                                " This gives unpredictable results when " + \
-                                "recarray to file - change to \'object\' type")
+                msg = ("MfList.fmt_string error: 'str' type found in dtype. "
+                       "This gives unpredictable results when "
+                       "recarray to file - change to 'object' type")
+                raise TypeError(msg)
             else:
-                raise Exception("MfList.fmt_string error: unknown vtype " + \
-                                "in dtype:" + vtype)
+                raise TypeError("MfList.fmt_string error: unknown vtype in "
+                                "field: {}".format(field))
+        if use_free:
+            fmt_string = ' ' + ' '.join(fmts)
+        else:
+            fmt_string = ''.join(fmts)
         return fmt_string
 
     # Private method to cast the data argument
@@ -265,7 +307,7 @@ class MfList(object):
 
         # If data is a dict, the we have to assume it is keyed on kper
         if isinstance(data, dict):
-            if len(list(data.keys())) == 0:
+            if not list(data.keys()):
                 raise Exception("MfList error: data dict is empty")
             for kper, d in data.items():
                 try:
@@ -284,8 +326,8 @@ class MfList(object):
                         raise Exception("MfList error: casting list " + \
                                         "to ndarray: " + str(e))
 
-                #super hack - sick of recarrays already
-                #if (isinstance(d,np.ndarray) and len(d.dtype.fields) > 1):
+                # super hack - sick of recarrays already
+                # if (isinstance(d,np.ndarray) and len(d.dtype.fields) > 1):
                 #    d = d.view(np.recarray)
 
                 if isinstance(d, np.recarray):
@@ -324,15 +366,15 @@ class MfList(object):
 
     def __cast_int(self, kper, d):
         # If d is an integer, then it must be 0 or -1
-        if (d > 0):
-            raise Exception("MfList error: dict integer value for " + \
-                            "kper {0:10d} must be 0 or -1, " + \
+        if d > 0:
+            raise Exception("MfList error: dict integer value for "
+                            "kper {0:10d} must be 0 or -1, "
                             "not {1:10d}".format(kper, d))
-        if (d == 0):
+        if d == 0:
             self.__data[kper] = 0
             self.__vtype[kper] = None
         else:
-            if (kper == 0):
+            if kper == 0:
                 raise Exception("MfList error: dict integer value for " + \
                                 "kper 0 for cannot be negative")
             self.__data[kper] = -1
@@ -347,7 +389,7 @@ class MfList(object):
 
     def __cast_ndarray(self, kper, d):
         d = np.atleast_2d(d)
-        if (d.dtype != self.__dtype):
+        if d.dtype != self.__dtype:
             assert d.shape[1] == len(self.dtype), "MfList error: ndarray " + \
                                                   "shape " + str(d.shape) + \
                                                   " doesn't match dtype " + \
@@ -364,32 +406,34 @@ class MfList(object):
         self.__vtype[kper] = np.recarray
 
     def get_dataframe(self, squeeze=True):
-        """Cast recarrays for stress periods into single
-        dataframe containing all stress periods. 
-        
+        """
+        Cast recarrays for stress periods into single
+        dataframe containing all stress periods.
+
         Parameters
         ----------
         squeeze : bool
             Reduce number of columns in dataframe to only include
             stress periods where a variable changes.
-        
+
         Returns
         -------
         df : dataframe
-            Dataframe of shape nrow = ncells, ncol = nvar x nper. If 
-            the squeeze option is choosen, nper is the number of 
-            stress periods where at least one cells is different, 
+            Dataframe of shape nrow = ncells, ncol = nvar x nper. If
+            the squeeze option is chosen, nper is the number of
+            stress periods where at least one cells is different,
             otherwise it is equal to the number of keys in MfList.data.
-        
+
         Notes
         -----
         Requires pandas.
+
         """
         try:
             import pandas as pd
         except Exception as e:
-            print("this feature requires pandas")
-            return None
+            msg = 'MfList.get_dataframe() requires pandas'
+            raise ImportError(msg)
 
         # make a dataframe of all data for all stress periods
         names = ['k', 'i', 'j']
@@ -398,7 +442,7 @@ class MfList(object):
 
         # find relevant variable names
         # may have to iterate over the first stress period
-        for per in range(self.model.nper):
+        for per in range(self._model.nper):
             if hasattr(self.data[per], 'dtype'):
                 varnames = list([n for n in self.data[per].dtype.names
                                  if n not in names])
@@ -407,18 +451,27 @@ class MfList(object):
         # create list of dataframes for each stress period
         # each with index of k, i, j
         dfs = []
-        for per in range(self.model.nper):
+        for per in range(self._model.nper):
             recs = self.data[per]
             if recs is None or recs is 0:
                 # add an empty dataframe if a stress period is
                 # set to 0 (e.g. no pumping during a predevelopment
                 # period)
-                columns = names + list(['{}{}'.format(c, per) for c in varnames])
+                columns = names + list(['{}{}'.format(c, per)
+                                        for c in varnames])
                 dfi = pd.DataFrame(data=None, columns=columns)
                 dfi = dfi.set_index(names)
             else:
                 dfi = pd.DataFrame.from_records(recs)
-                dfi = dfi.set_index(names)
+                # dfi = dfi.set_index(names)
+                dfg = dfi.groupby(names)
+                count = dfg[varnames[0]].count().rename('n')
+                if (count > 1).values.any():
+                    print("Duplicated list entry locations aggregated "
+                          "for kper {}".format(per))
+                    for kij in count[count > 1].index.values:
+                        print("    (k,i,j) {}".format(kij))
+                dfi = dfg.sum()  # aggregate
                 dfi.columns = list(['{}{}'.format(c, per) for c in varnames])
             dfs.append(dfi)
         df = pd.concat(dfs, axis=1)
@@ -426,13 +479,14 @@ class MfList(object):
             keep = []
             for var in varnames:
                 diffcols = list([n for n in df.columns if var in n])
-                diff = df[diffcols].diff(axis=1)
-                diff['{}0'.format(var)] = 1  # always return the first stress period
+                diff = df[diffcols].fillna(0).diff(axis=1)
+                diff['{}0'.format(
+                    var)] = 1  # always return the first stress period
                 changed = diff.sum(axis=0) != 0
                 keep.append(df.loc[:, changed.index[changed]])
             df = pd.concat(keep, axis=1)
         df = df.reset_index()
-        df.insert(len(names), 'node', df.i * self.model.ncol + df.j)
+        df.insert(len(names), 'node', df.i * self._model.ncol + df.j)
         return df
 
     def add_record(self, kper, index, values):
@@ -445,19 +499,19 @@ class MfList(object):
             "MfList.add_record() error: length of index arg +" + \
             "length of value arg != length of self dtype"
         # If we already have something for this kper, then add to it
-        if (kper in list(self.__data.keys())):
+        if kper in list(self.__data.keys()):
             # If a 0 or -1, reset
-            if (self.vtype[kper] == int):
+            if self.vtype[kper] == int:
                 self.__data[kper] = self.get_empty(1)
                 self.__vtype[kper] = np.recarray
             # If filename, load into recarray
-            if (self.vtype[kper] == str):
+            if self.vtype[kper] == str:
                 d = self.__fromfile(self.data[kper])
                 d.resize(d.shape[0], d.shape[1])
                 self.__data[kper] = d
                 self.__vtype[kper] = np.recarray
             # Extend the recarray
-            if (self.vtype[kper] == np.recarray):
+            if self.vtype[kper] == np.recarray:
                 shape = self.__data[kper].shape
                 self.__data[kper].resize(shape[0] + 1, shape[1])
         else:
@@ -473,7 +527,7 @@ class MfList(object):
 
     def __getitem__(self, kper):
         # Get the recarray for a given kper
-        # If the data entry for kper is a string, 
+        # If the data entry for kper is a string,
         # return the corresponding recarray,
         # but don't reset the value in the data dict
         # assert kper in list(self.data.keys()), "MfList.__getitem__() kper " + \
@@ -489,19 +543,19 @@ class MfList(object):
                 return self.get_empty()
             else:
                 return self.data[self.__find_last_kper(kper)]
-        if (self.vtype[kper] == int):
-            if (self.data[kper] == 0):
+        if self.vtype[kper] == int:
+            if self.data[kper] == 0:
                 return self.get_empty()
             else:
                 return self.data[self.__find_last_kper(kper)]
-        if (self.vtype[kper] == str):
+        if self.vtype[kper] == str:
             return self.__fromfile(self.data[kper])
-        if (self.vtype[kper] == np.recarray):
+        if self.vtype[kper] == np.recarray:
             return self.data[kper]
 
     def __setitem__(self, kper, data):
-        if (kper in list(self.__data.keys())):
-            if self.model.verbose:
+        if kper in list(self.__data.keys()):
+            if self._model.verbose:
                 print('removing existing data for kper={}'.format(kper))
             self.data.pop(kper)
         # If data is a list, then all we can do is try to cast it to
@@ -535,7 +589,7 @@ class MfList(object):
         try:
             d = np.genfromtxt(f, dtype=self.dtype)
         except Exception as e:
-            raise Exception("MfList.__fromfile() error reading recarray " + \
+            raise Exception("MfList.__fromfile() error reading recarray " +
                             "from file " + str(e))
         return d
 
@@ -544,7 +598,7 @@ class MfList(object):
         kpers.sort()
         filenames = []
         first = kpers[0]
-        for kper in list(range(0, max(self.model.nper, max(kpers) + 1))):
+        for kper in list(range(0, max(self._model.nper, max(kpers) + 1))):
             # Fill missing early kpers with 0
             if (kper < first):
                 itmp = 0
@@ -552,57 +606,56 @@ class MfList(object):
             elif (kper in kpers):
                 kper_vtype = self.__vtype[kper]
 
-            if self.model.array_free_format and self.model.external_path is not None:
-
+            if self._model.array_free_format and self._model.external_path is\
+                    not None:
                 # py_filepath = ''
                 # py_filepath = os.path.join(py_filepath,
-                #                            self.model.external_path)
-                filename = self.package.name[0] + \
-                            "_{0:04d}.dat".format(kper)
-                # py_filepath = os.path.join(py_filepath, filename)
-                # filenames.append(py_filepath)
+                #                            self._model.external_path)
+                filename = self.package.name[0] + "_{0:04d}.dat".format(kper)
                 filenames.append(filename)
         return filenames
 
-    def get_filename(self,kper):
+    def get_filename(self, kper):
         ext = "dat"
         if self.binary:
             ext = 'bin'
-        return self.package.name[0] + '_{0:04d}.{1}'.format(kper,ext)
+        return self.package.name[0] + '_{0:04d}.{1}'.format(kper, ext)
 
     @property
     def binary(self):
         return bool(self.__binary)
 
-    def write_transient(self, f, single_per=None):
+    def write_transient(self, f, single_per=None, forceInternal=False):
+        # forceInternal overrides isExternal (set below) for cases where
+        # external arrays are not supported (oh hello MNW1!)
         # write the transient sequence described by the data dict
-        nr, nc, nl, nper = self.model.get_nrow_ncol_nlay_nper()
+        nr, nc, nl, nper = self._model.get_nrow_ncol_nlay_nper()
         assert hasattr(f, "read"), "MfList.write() error: " + \
                                    "f argument must be a file handle"
         kpers = list(self.data.keys())
         kpers.sort()
         first = kpers[0]
-        if (single_per == None):
+        if single_per is None:
             loop_over_kpers = list(range(0, max(nper, max(kpers) + 1)))
         else:
-            if (not isinstance(single_per, list)):
+            if not isinstance(single_per, list):
                 single_per = [single_per]
             loop_over_kpers = single_per
 
         for kper in loop_over_kpers:
             # Fill missing early kpers with 0
-            if (kper < first):
+            if kper < first:
                 itmp = 0
                 kper_vtype = int
-            elif (kper in kpers):
+            elif kper in kpers:
                 kper_data = self.__data[kper]
                 kper_vtype = self.__vtype[kper]
                 if (kper_vtype == str):
-                    if (not self.model.array_free_format):
+                    if (not self._model.array_free_format):
                         kper_data = self.__fromfile(kper_data)
                         kper_vtype = np.recarray
                     itmp = self.get_itmp(kper)
-                if (kper_vtype == np.recarray):
+                if kper_vtype == np.recarray:
                     itmp = kper_data.shape[0]
                 elif (kper_vtype == int) or (kper_vtype is None):
                     itmp = kper_data
@@ -612,28 +665,30 @@ class MfList(object):
                 kper_vtype = int
 
             f.write(" {0:9d} {1:9d} # stress period {2:d}\n"
-                    .format(itmp, 0, kper+1))
+                    .format(itmp, 0, kper + 1))
 
             isExternal = False
-            if self.model.array_free_format and \
-                            self.model.external_path is not None:
+            if self._model.array_free_format and \
+                    self._model.external_path is not None and \
+                    forceInternal is False:
                 isExternal = True
             if self.__binary:
                 isExternal = True
             if isExternal:
                 if kper_vtype == np.recarray:
                     py_filepath = ''
-                    if self.model.model_ws is not None:
-                        py_filepath = self.model.model_ws
-                    if self.model.external_path is not None:
+                    if self._model.model_ws is not None:
+                        py_filepath = self._model.model_ws
+                    if self._model.external_path is not None:
                         py_filepath = os.path.join(py_filepath,
-                                                   self.model.external_path)
+                                                   self._model.external_path)
                     filename = self.get_filename(kper)
                     py_filepath = os.path.join(py_filepath, filename)
                     model_filepath = filename
-                    if self.model.external_path is not None:
-                        model_filepath = os.path.join(self.model.external_path,
-                                                      filename)
+                    if self._model.external_path is not None:
+                        model_filepath = os.path.join(
+                            self._model.external_path,
+                            filename)
                     self.__tofile(py_filepath, kper_data)
                     kper_vtype = str
                     kper_data = model_filepath
@@ -661,7 +716,7 @@ class MfList(object):
         # Add one to the kij indices
         lnames = [name.lower() for name in self.dtype.names]
         # --make copy of data for multiple calls
-        d = np.recarray.copy(data)
+        d = data.copy()
         for idx in ['k', 'i', 'j', 'node']:
             if idx in lnames:
                 d[idx] += 1
@@ -681,39 +736,36 @@ class MfList(object):
             warnings.warn("MfList.check_kij(): index fieldnames \'k,i,j\' " +
                           "not found in self.dtype names: " + str(names))
             return
-        nr, nc, nl, nper = self.model.get_nrow_ncol_nlay_nper()
-        if (nl == 0):
+        nr, nc, nl, nper = self._model.get_nrow_ncol_nlay_nper()
+        if nl == 0:
             warnings.warn("MfList.check_kij(): unable to get dis info from " +
                           "model")
             return
         for kper in list(self.data.keys()):
             out_idx = []
             data = self[kper]
-            if (data is not None):
+            if data is not None:
                 k = data['k']
                 k_idx = np.where(np.logical_or(k < 0, k >= nl))
-                if (k_idx[0].shape[0] > 0):
+                if k_idx[0].shape[0] > 0:
                     out_idx.extend(list(k_idx[0]))
                 i = data['i']
                 i_idx = np.where(np.logical_or(i < 0, i >= nr))
-                if (i_idx[0].shape[0] > 0):
+                if i_idx[0].shape[0] > 0:
                     out_idx.extend(list(i_idx[0]))
                 j = data['j']
                 j_idx = np.where(np.logical_or(j < 0, j >= nc))
-                if (j_idx[0].shape[0]):
+                if j_idx[0].shape[0]:
                     out_idx.extend(list(j_idx[0]))
 
-                if (len(out_idx) > 0):
+                if len(out_idx) > 0:
                     warn_str = "MfList.check_kij(): warning the following " + \
                                "indices are out of bounds in kper " + \
                                str(kper) + ':\n'
                     for idx in out_idx:
                         d = data[idx]
-                        warn_str += " {0:9d} {1:9d} {2:9d}\n".format(d['k']
-                                                                     + 1, d[
-                                                                         'i'] + 1,
-                                                                     d[
-                                                                         'j'] + 1)
+                        warn_str += " {0:9d} {1:9d} {2:9d}\n".format(
+                            d['k'] + 1, d['i'] + 1, d['j'] + 1)
                     warnings.warn(warn_str)
 
     def __find_last_kper(self, kper):
@@ -739,12 +791,12 @@ class MfList(object):
             raise NotImplementedError("MfList.get_indices requires kij")
         kpers = list(self.data.keys())
         kpers.sort()
-        indices = None
+        indices = []
         for i, kper in enumerate(kpers):
             kper_vtype = self.__vtype[kper]
             if (kper_vtype != int) or (kper_vtype is not None):
                 d = self.data[kper]
-                if indices is None:
+                if not indices:
                     indices = list(zip(d['k'], d['i'], d['j']))
                 else:
                     new_indices = list(zip(d['k'], d['i'], d['j']))
@@ -760,7 +812,7 @@ class MfList(object):
         kpers = list(self.data.keys())
         kpers.sort()
         values = []
-        for kper in range(0, max(self.model.nper, max(kpers))):
+        for kper in range(0, max(self._model.nper, max(kpers))):
 
             if kper < min(kpers):
                 values.append(0)
@@ -848,59 +900,14 @@ class MfList(object):
 
         """
 
-        import flopy.plot.plotutil as pu
+        from flopy.plot import PlotUtilities
+        axes = PlotUtilities._plot_mflist_helper(self, key=key, names=names,
+                                                 kper=kper,
+                                                 filename_base=filename_base,
+                                                 file_extension=file_extension,
+                                                 mflay=mflay,
+                                                 **kwargs)
 
-        if file_extension is not None:
-            fext = file_extension
-        else:
-            fext = 'png'
-
-        filenames = None
-        if filename_base is not None:
-            if mflay is not None:
-                i0 = int(mflay)
-                if i0 + 1 >= self.model.nlay:
-                    i0 = self.model.nlay - 1
-                i1 = i0 + 1
-            else:
-                i0 = 0
-                i1 = self.model.nlay
-            # build filenames
-            pn = self.package.name[0].upper()
-            filenames = [
-                '{}_{}_StressPeriod{}_Layer{}.{}'.format(filename_base, pn,
-                                                         kper + 1, k + 1, fext)
-                for k in range(i0, i1)]
-        if names is None:
-            if key is None:
-                names = ['{} location stress period: {} layer: {}'.format(
-                    self.package.name[0], kper + 1, k + 1)
-                         for k in range(self.model.nlay)]
-            else:
-                names = ['{} {} stress period: {} layer: {}'.format(
-                    self.package.name[0], key, kper + 1, k + 1)
-                         for k in range(self.model.nlay)]
-
-        if key is None:
-            axes = pu._plot_bc_helper(self.package, kper,
-                                      names=names, filenames=filenames,
-                                      mflay=mflay, **kwargs)
-        else:
-            arr_dict = self.to_array(kper, mask=True)
-
-            try:
-                arr = arr_dict[key]
-            except:
-                p = 'Cannot find key to plot\n'
-                p += '  Provided key={}\n  Available keys='.format(key)
-                for name, arr in arr_dict.items():
-                    p += '{}, '.format(name)
-                p += '\n'
-                raise Exception(p)
-
-            axes = pu._plot_array_helper(arr, model=self.model,
-                                         names=names, filenames=filenames,
-                                         mflay=mflay, **kwargs)
         return axes
 
     def to_shapefile(self, filename, kper=None):
@@ -970,7 +977,7 @@ class MfList(object):
         ----------
         out : dict of numpy.ndarrays
             Dictionary of 3-D numpy arrays containing the stress period data for
-            a selected stress period. The dictonary keys are the MfList dtype
+            a selected stress period. The dictionary keys are the MfList dtype
             names for the stress period data ('cond', 'flux', 'bhead', etc.).
 
         See Also
@@ -987,12 +994,24 @@ class MfList(object):
 
         """
         i0 = 3
+        unstructured = False
         if 'inode' in self.dtype.names:
             raise NotImplementedError()
+
+        if 'node' in self.dtype.names:
+            if 'i' not in self.dtype.names and\
+                    "j" not in self.dtype.names:
+                i0 = 1
+                unstructured = True
+
         arrays = {}
         for name in self.dtype.names[i0:]:
             if not self.dtype.fields[name][0] == object:
-                arr = np.zeros((self.model.nlay, self.model.nrow, self.model.ncol))
+                if unstructured:
+                    arr = np.zeros((self._model.nlay * self._model.ncpl,))
+                else:
+                    arr = np.zeros((self._model.nlay, self._model.nrow,
+                                    self._model.ncol))
                 arrays[name] = arr.copy()
 
         # if this kper is not found
@@ -1023,13 +1042,23 @@ class MfList(object):
                 raise Exception("MfList: something bad happened")
 
         for name, arr in arrays.items():
-            cnt = np.zeros((self.model.nlay, self.model.nrow, self.model.ncol),
-                           dtype=np.float)
+            if unstructured:
+                cnt = np.zeros((self._model.nlay * self._model.ncpl,),
+                               dtype=np.float)
+            else:
+                cnt = np.zeros(
+                    (self._model.nlay, self._model.nrow, self._model.ncol),
+                    dtype=np.float)
+            #print(name,kper)
             for rec in sarr:
-                arr[rec['k'], rec['i'], rec['j']] += rec[name]
-                cnt[rec['k'], rec['i'], rec['j']] += 1.
+                if unstructured:
+                    arr[rec['node']] += rec[name]
+                    cnt[rec['node']] += 1.
+                else:
+                    arr[rec['k'], rec['i'], rec['j']] += rec[name]
+                    cnt[rec['k'], rec['i'], rec['j']] += 1.
             # average keys that should not be added
-            if name != 'cond' and name != 'flux':
+            if name not in ('cond', 'flux'):
                 idx = cnt > 0.
                 arr[idx] /= cnt[idx]
             if mask:
@@ -1050,11 +1079,11 @@ class MfList(object):
         # initialize these big arrays
         m4ds = {}
         for name, array in arrays.items():
-            m4d = np.zeros((self.model.nper, self.model.nlay,
-                            self.model.nrow, self.model.ncol))
+            m4d = np.zeros((self._model.nper, self._model.nlay,
+                            self._model.nrow, self._model.ncol))
             m4d[0, :, :, :] = array
             m4ds[name] = m4d
-        for kper in range(1, self.model.nper):
+        for kper in range(1, self._model.nper):
             arrays = self.to_array(kper=kper, mask=True)
             for name, array in arrays.items():
                 m4ds[name][kper, :, :, :] = array
@@ -1066,10 +1095,10 @@ class MfList(object):
 
         # initialize these big arrays
         for name, array in arrays.items():
-            m4d = np.zeros((self.model.nper, self.model.nlay,
-                            self.model.nrow, self.model.ncol))
+            m4d = np.zeros((self._model.nper, self._model.nlay,
+                            self._model.nrow, self._model.ncol))
             m4d[0, :, :, :] = array
-            for kper in range(1, self.model.nper):
+            for kper in range(1, self._model.nper):
                 arrays = self.to_array(kper=kper, mask=True)
                 for tname, array in arrays.items():
                     if tname == name:
@@ -1086,9 +1115,9 @@ class MfList(object):
         (attribute_name,masked 4D ndarray
         Parameters
         ----------
-            model : mbase dervied type
+            model : mbase derived type
             pak_name : str package name (e.g GHB)
-            m4ds : {attibute name:4d masked numpy.ndarray}
+            m4ds : {attribute name:4d masked numpy.ndarray}
         Returns
         -------
             MfList instance

@@ -135,7 +135,8 @@ class ModflowChd(Package):
         if dtype is not None:
             self.dtype = dtype
         else:
-            self.dtype = self.get_default_dtype(structured=self.parent.structured)
+            self.dtype = self.get_default_dtype(
+                structured=self.parent.structured)
         self.stress_period_data = MfList(self, stress_period_data)
 
         self.np = 0
@@ -172,10 +173,9 @@ class ModflowChd(Package):
         except Exception as e:
             raise Exception("mfchd error adding record to list: " + str(e))
 
-
     @staticmethod
     def get_empty(ncells=0, aux_names=None, structured=True):
-        # get an empty recaray that corresponds to dtype
+        # get an empty recarray that corresponds to dtype
         dtype = ModflowChd.get_default_dtype(structured=structured)
         if aux_names is not None:
             dtype = Package.add_to_dtype(dtype, aux_names, np.float32)
@@ -231,14 +231,12 @@ class ModflowChd(Package):
         if model.verbose:
             sys.stdout.write('loading chd package file...\n')
 
-        return Package.load(model, ModflowChd, f, nper,
+        return Package.load(f, model, ModflowChd, nper=nper,
                             ext_unit_dict=ext_unit_dict)
-
 
     @staticmethod
     def ftype():
         return 'CHD'
-
 
     @staticmethod
     def defaultunit():

@@ -18,6 +18,7 @@ except:
 import flopy
 fm = flopy.modflow
 from flopy.utils.sfroutputfile import SfrFile
+from flopy.discretization import StructuredGrid
 from flopy.utils.reference import SpatialReference
 
 if os.path.split(os.getcwd())[-1] == 'flopy3':
@@ -256,7 +257,8 @@ def test_const():
     fm = flopy.modflow
     m = fm.Modflow()
     dis = fm.ModflowDis(m, 1, 10, 10, lenuni=2, itmuni=4)
-    m.sr = SpatialReference()
+    m.modelgrid = StructuredGrid(delc=dis.delc.array,
+                                 delr=dis.delr.array,)
     r, d = create_sfr_data()
     sfr = flopy.modflow.ModflowSfr2(m, reach_data=r, segment_data={0: d})
     assert sfr.const == 86400.
@@ -275,8 +277,12 @@ def test_export():
     fm = flopy.modflow
     m = fm.Modflow()
     dis = fm.ModflowDis(m, 1, 10, 10, lenuni=2, itmuni=4)
-    m.sr = SpatialReference(delr=m.dis.delr.array, delc=m.dis.delc.array)
-    m.sr.write_shapefile(os.path.join(outpath, 'grid.shp'))
+    sr = SpatialReference(xul=0.0, yul=0.0, delc=m.dis.delc.array)
+    m.modelgrid = StructuredGrid(delc=m.dis.delc.array,
+                                 delr=m.dis.delr.array,
+                                 xoff=sr.xll, yoff=sr.yll)
+    # m.sr.origin_loc = "ll"
+    m.export(os.path.join(outpath, 'grid.shp'))
     r, d = create_sfr_data()
     sfr = flopy.modflow.ModflowSfr2(m, reach_data=r, segment_data={0: d})
     sfr.segment_data[0]['flow'][-1] = 1e4
@@ -299,13 +305,14 @@ def test_export():
     assert ra.ireach0.sum() == sfr.reach_data.ireach.sum()
     y = np.concatenate([np.array(g.exterior)[:, 1] for g in ra.geometry])
     x = np.concatenate([np.array(g.exterior)[:, 0] for g in ra.geometry])
-    assert (x.min(), y.min(), x.max(), y.max()) == m.sr.bounds
+
+    assert (x.min(), x.max(), y.min(), y.max()) == m.modelgrid.extent
     assert ra[(ra.iseg0 == 2) & (ra.ireach0 == 1)]['geometry'][0].bounds \
         == (6.0, 2.0, 7.0, 3.0)
 
 def test_example():
     m = flopy.modflow.Modflow.load('test1ss.nam', version='mf2005',
-                                   exe_name='mf2005.exe',
+                                   exe_name='mf2005',
                                    model_ws=path,
                                    load_only=['ghb', 'evt', 'rch', 'dis',
                                               'bas6', 'oc', 'sip', 'lpf'])
@@ -376,6 +383,39 @@ def test_example():
     for i in range(1, nper):
         assert sfr2.dataset_5[i][0] == -1
 
+def test_ds_6d_6e_disordered():
+    path = os.path.join("..", "examples", "data", "hydmod_test")
+    path2 = os.path.join(".", "temp", "t009")
+    m = flopy.modflow.Modflow.load("test1tr2.nam",
+                                   model_ws=path)
+
+    m.change_model_ws(path2)
+    m.write_input()
+
+    m2 = flopy.modflow.Modflow.load("test1tr2.nam",
+                                    model_ws=path2)
+
+    sfr = m.get_package("SFR")
+    sfr2 = m2.get_package("SFR")
+
+
+    if len(sfr.all_segments) != len(sfr2.all_segments):
+        raise AssertionError
+
+    if len(sfr.segment_data[0]) != len(sfr2.segment_data[0]):
+        raise AssertionError
+
+    for kper, d in sfr.channel_flow_data.items():
+        for seg, value in d.items():
+            if not np.allclose(value, sfr2.channel_flow_data[kper][seg]):
+                raise AssertionError
+
+    for kper, d in sfr.channel_geometry_data.items():
+        for seg, value in d.items():
+            if not np.allclose(value, sfr2.channel_geometry_data[kper][seg]):
+                raise AssertionError
+
+
 def test_transient_example():
     path = os.path.join('temp', 't009')
     gpth = os.path.join('..', 'examples', 'data', 'mf2005_test', 'testsfr2.*')
@@ -422,7 +462,7 @@ def test_assign_layers():
     l = m.dis.get_layer(0, [0, 1], 0.)
     assert np.array_equal(l, np.array([1, 1]))
 
-    
+
 def test_SfrFile():
     sfrout = SfrFile('../examples/data/sfr_examples/sfroutput2.txt')
     # will be None if pandas is not installed
@@ -449,13 +489,14 @@ def test_sfr_plot():
     pass
 
 if __name__ == '__main__':
-    #test_sfr()
-    test_sfr_renumbering()
-    #test_example()
-    #test_export()
+    # test_sfr()
+    # test_ds_6d_6e_disordered()
+    # test_sfr_renumbering()
+    # test_example()
+    # test_export()
     #test_transient_example()
     #test_sfr_plot()
-    test_assign_layers()
-    test_SfrFile()
-    test_const()
+    # test_assign_layers()
+    # test_SfrFile()
+    # test_const()
     pass

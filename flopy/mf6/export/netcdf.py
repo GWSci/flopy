@@ -159,9 +159,9 @@ class NetCdf(object):
 
         assert model.dis is not None
         self.model = model
-        self.sr = model.sr
+        self.mg = model.modelgrid
         if prj is not None:
-            self.sr.prj = prj
+            self.mg.prj = prj
 
         grd = model.dimensions.get_model_grid()
 
@@ -183,7 +183,7 @@ class NetCdf(object):
         print ("WITTW start", self.start_datetime)
         self.logger.warn("start datetime:{0}".format(str(self.start_datetime)))
 
-        proj4_str = self.model.sr.proj4_str
+        proj4_str = self.model.modelgrid.proj4
         if proj4_str is None:
             proj4_str = '+init=epsg:27700'
             self.log(
@@ -596,8 +596,8 @@ class NetCdf(object):
                              "{0}".format(str(e)))
         self.global_attributes["solver_head_tolerance"] = htol
         self.global_attributes["solver_flux_tolerance"] = rtol
-        for n, v in self.model.sr.attribute_dict.items():
-            self.global_attributes["flopy_sr_" + n] = v
+        # for n, v in self.model.sr.attribute_dict.items():
+        #     self.global_attributes["flopy_sr_" + n] = v
         self.global_attributes["start_datetime"] = self.model.start_datetime
 
         self.fillvalue = FILLVALUE

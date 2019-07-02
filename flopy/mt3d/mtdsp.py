@@ -3,6 +3,7 @@ import numpy as np
 from ..pakbase import Package
 from ..utils import Util2d, Util3d
 
+
 class Mt3dDsp(Package):
     """
     MT3DMS Dispersion Package Class.
@@ -77,7 +78,7 @@ class Mt3dDsp(Package):
     kwargs : dictionary
         If a multi-species simulation, then dmcoef values can be specified for
         other species as dmcoef2, dmcoef3, etc.  For example:
-        dmcoef1=1.e-10, dmcoef2=4.e-10, ...  If a value is not specifed, then
+        dmcoef1=1.e-10, dmcoef2=4.e-10, ...  If a value is not specified, then
         dmcoef is set to 0.0.
 
     Attributes
@@ -100,6 +101,7 @@ class Mt3dDsp(Package):
     >>> dsp = flopy.mt3d.Mt3dDsp(m)
 
     """
+
     def __init__(self, model, al=0.01, trpt=0.1, trpv=0.01, dmcoef=1e-9,
                  extension='dsp', multiDiff=False, unitnumber=None,
                  filenames=None, **kwargs):
@@ -133,7 +135,7 @@ class Mt3dDsp(Package):
         ncomp = model.ncomp
         mcomp = model.mcomp
         self.multiDiff = multiDiff
-        self.al = Util3d(model, (nlay,nrow,ncol), np.float32, al, name='al',
+        self.al = Util3d(model, (nlay, nrow, ncol), np.float32, al, name='al',
                          locat=self.unit_number[0],
                          array_free_format=False)
         self.trpt = Util2d(model, (nlay,), np.float32, trpt, name='trpt',
@@ -299,13 +301,13 @@ class Mt3dDsp(Package):
 
         if model.verbose:
             print('   loading TRPT...')
-        trpt = Util2d.load(f, model, (nlay, 1), np.float32, 'trpt',
+        trpt = Util2d.load(f, model, (nlay,), np.float32, 'trpt',
                            ext_unit_dict, array_format="mt3d",
                            array_free_format=False)
 
         if model.verbose:
             print('   loading TRPV...')
-        trpv = Util2d.load(f, model, (nlay, 1), np.float32, 'trpv',
+        trpv = Util2d.load(f, model, (nlay,), np.float32, 'trpv',
                            ext_unit_dict, array_format="mt3d",
                            array_free_format=False)
 
@@ -320,17 +322,17 @@ class Mt3dDsp(Package):
                 for icomp in range(2, model.mcomp + 1):
                     name = "dmcoef" + str(icomp)
                     u3d = Util3d.load(f, model, (nlay, nrow, ncol), np.float32,
-                                       name, ext_unit_dict, array_format="mt3d")
+                                      name, ext_unit_dict, array_format="mt3d")
                     kwargs[name] = u3d
 
 
         else:
-            dmcoef = Util2d.load(f, model, (nlay, 1), np.float32,
-                               'dmcoef1', ext_unit_dict, array_format="mt3d")
+            dmcoef = Util2d.load(f, model, (nlay,), np.float32,
+                                 'dmcoef1', ext_unit_dict, array_format="mt3d")
             # if model.mcomp > 1:
             #     for icomp in range(2, model.mcomp + 1):
             #         name = "dmcoef" + str(icomp + 1)
-            #         u2d = Util2d.load(f, model, (nlay, 1), np.float32, name,
+            #         u2d = Util2d.load(f, model, (nlay,), np.float32, name,
             #                     ext_unit_dict, array_format="mt3d")
             #         kwargs[name] = u2d
 

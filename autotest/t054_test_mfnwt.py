@@ -45,6 +45,7 @@ def test_mfnwt_model():
         d, f = os.path.split(fnwt)
         yield mfnwt_model, f, d
 
+
 # function to load a MODFLOW-2005 model, convert to a MFNWT model,
 # write it back out, run the MFNWT model, load the MFNWT model,
 # and compare the results.
@@ -105,7 +106,7 @@ def mfnwt_model(namfile, model_ws):
         try:
             success, buff = m.run_model(silent=False)
         except:
-            pass
+            success = False
         assert success, 'base model run did not terminate successfully'
         fn0 = os.path.join(pth, namfile)
 
@@ -124,7 +125,7 @@ def mfnwt_model(namfile, model_ws):
         try:
             success, buff = m.run_model(silent=False)
         except:
-            pass
+            success = False
         assert success, 'base model run did not terminate successfully'
         fn1 = os.path.join(pthf, namfile)
 
@@ -134,6 +135,7 @@ def mfnwt_model(namfile, model_ws):
         try:
             success = pymake.compare_heads(fn0, fn1, outfile=fsum)
         except:
+            success = False
             print('could not perform head comparison')
 
         assert success, 'head comparison failure'
@@ -145,11 +147,13 @@ def mfnwt_model(namfile, model_ws):
                                             max_incpd=0.1, max_cumpd=0.1,
                                             outfile=fsum)
         except:
+            success = False
             print('could not perform budget comparison')
 
         assert success, 'budget comparison failure'
 
     return
+
 
 if __name__ == '__main__':
     for fnwt in nwt_files:

@@ -14,6 +14,7 @@ import numpy as np
 from ..pakbase import Package
 from ..utils.recarray_utils import create_empty_recarray
 
+
 class ModflowFhb(Package):
     """
     MODFLOW Flow and Head Boundary Package Class.
@@ -78,6 +79,7 @@ class ModflowFhb(Package):
                 [lay, row, col, iaux, flwrat1, flwra2, ..., flwrat(nbdtime)],
                 [lay, row, col, iaux, flwrat1, flwra2, ..., flwrat(nbdtime)]
             ]
+
         Note there should be nflw rows in ds7.
 
     cnstm7 : float
@@ -96,6 +98,7 @@ class ModflowFhb(Package):
                 [lay, row, col, iaux, sbhed1, sbhed2, ..., sbhed(nbdtime)],
                 [lay, row, col, iaux, sbhed1, sbhed2, ..., sbhed(nbdtime)]
             ]
+
         Note there should be nhed rows in ds7.
 
     extension : string
@@ -207,7 +210,7 @@ class ModflowFhb(Package):
                 raise TypeError(msg)
             elif isinstance(ds5, list):
                 ds5 = np.array(ds5)
-            # convert numpy array to a rec array
+            # convert numpy array to a recarray
             if ds5.dtype != dtype:
                 ds5 = np.core.records.fromarrays(ds5.transpose(), dtype=dtype)
 
@@ -223,7 +226,7 @@ class ModflowFhb(Package):
                 raise TypeError(msg)
             elif isinstance(ds7, list):
                 ds7 = np.array(ds7)
-            # convert numpy array to a rec array
+            # convert numpy array to a recarray
             if ds7.dtype != dtype:
                 ds7 = np.core.records.fromarrays(ds7.transpose(), dtype=dtype)
 
@@ -279,7 +282,7 @@ class ModflowFhb(Package):
 
     @staticmethod
     def get_empty(ncells=0, nbdtim=1, structured=True, head=False):
-        # get an empty recarray that correponds to dtype
+        # get an empty recarray that corresponds to dtype
         dtype = ModflowFhb.get_default_dtype(nbdtim=nbdtim,
                                              structured=structured, head=head)
         return create_empty_recarray(ncells, dtype, default_value=-1.0E+10)
@@ -677,7 +680,7 @@ class ModflowFhb(Package):
                 model.get_ext_dict_attr(ext_unit_dict, unit=ipakcb)
             model.add_pop_key_list(ipakcb)
 
-        # auxillary data are not passed to load instantiation
+        # auxiliary data are not passed to load instantiation
         nfhbx1 = 0
         nfhbx2 = 0
 

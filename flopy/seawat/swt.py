@@ -5,16 +5,20 @@ from ..modflow import Modflow
 from ..mt3d import Mt3dms
 from .swtvdf import SeawatVdf
 from .swtvsc import SeawatVsc
+from ..discretization.structuredgrid import StructuredGrid
+from flopy.discretization.modeltime import ModelTime
+
 
 class SeawatList(Package):
     """
     List Package class
     """
+
     def __init__(self, model, extension='list', listunit=7):
         Package.__init__(self, model, extension, 'LIST', listunit)
         return
 
-    def __repr__( self ):
+    def __repr__(self):
         return 'List package class'
 
     def write_file(self):
@@ -37,7 +41,7 @@ class Seawat(BaseModel):
         Version of SEAWAT to use (the default is 'seawat').
     exe_name : string, optional
         The name of the executable to use (the default is
-        'swt_v4.exe').
+        'swtv4.exe').
     listunit : integer, optional
         Unit number for the list file (the default is 2).
     model_ws : string, optional
@@ -74,13 +78,13 @@ class Seawat(BaseModel):
 
     def __init__(self, modelname='swttest', namefile_ext='nam',
                  modflowmodel=None, mt3dmodel=None,
-                 version='seawat', exe_name='swt_v4',
+                 version='seawat', exe_name='swtv4',
                  structured=True, listunit=2, model_ws='.', external_path=None,
                  verbose=False, load=True, silent=0):
 
         # Call constructor for parent object
         BaseModel.__init__(self, modelname, namefile_ext, exe_name, model_ws,
-                           structured=structured)
+                           structured=structured, verbose=verbose)
 
         # Set attributes
         self.version_types = {'seawat': 'SEAWAT'}
@@ -92,6 +96,7 @@ class Seawat(BaseModel):
         if modflowmodel is not None:
             for p in modflowmodel.packagelist:
                 self.packagelist.append(p)
+            self._modelgrid = modflowmodel.modelgrid
         else:
             modflowmodel = Modflow()
 
@@ -109,7 +114,6 @@ class Seawat(BaseModel):
         self.external_units = []
         self.external_binflag = []
         self.external = False
-        self.verbose = verbose
         self.load = load
         # the starting external data unit number
         self._next_ext_unit = 3000
@@ -139,6 +143,57 @@ class Seawat(BaseModel):
         self.mfnam_packages['vdf'] = SeawatVdf
         self.mfnam_packages['vsc'] = SeawatVsc
         return
+
+    @property
+    def modeltime(self):
+        # build model time
+        data_frame = {'perlen': self.dis.perlen.array,
+                      'nstp': self.dis.nstp.array,
+                      'tsmult': self.dis.tsmult.array}
+        self._model_time = ModelTime(data_frame,
+                                     self.dis.itmuni_dict[self.dis.itmuni],
+                                     self.dis.start_datetime, self.dis.steady)
+        return self._model_time
+
+    @property
+    def modelgrid(self):
+        if not self._mg_resync:
+            return self._modelgrid
+
+        if self.bas6 is not None:
+            ibound = self.bas6.ibound.array
+        else:
+            ibound = None
+        # build grid
+        # self.dis should exist if modflow model passed
+        self._modelgrid = StructuredGrid(self.dis.delc.array,
+                                         self.dis.delr.array,
+                                         self.dis.top.array,
+                                         self.dis.botm.array,
+                                         idomain=ibound,
+                                         proj4=self._modelgrid.proj4,
+                                         epsg=self._modelgrid.epsg,
+                                         xoff=self._modelgrid.xoffset,
+                                         yoff=self._modelgrid.yoffset,
+                                         angrot=self._modelgrid.angrot)
+
+        # resolve offsets
+        xoff = self._modelgrid.xoffset
+        if xoff is None:
+            if self._xul is not None:
+                xoff = self._modelgrid._xul_to_xll(self._xul)
+            else:
+                xoff = 0.0
+        yoff = self._modelgrid.yoffset
+        if yoff is None:
+            if self._yul is not None:
+                yoff = self._modelgrid._yul_to_yll(self._yul)
+            else:
+                yoff = 0.0
+        self._modelgrid.set_coord_info(xoff, yoff, self._modelgrid.angrot,
+                                       self._modelgrid.epsg,
+                                       self._modelgrid.proj4)
+        return self._modelgrid
 
     @property
     def nlay(self):
@@ -204,21 +259,22 @@ class Seawat(BaseModel):
         # Overrides BaseModel's setter for name property
         BaseModel._set_name(self, value)
 
-        #for i in range(len(self.lst.extension)):
+        # for i in range(len(self.lst.extension)):
         #    self.lst.file_name[i] = self.name + '.' + self.lst.extension[i]
-        #return
+        # return
 
     def change_model_ws(self, new_pth=None, reset_external=False):
-        #if hasattr(self,"_mf"):
+        # if hasattr(self,"_mf"):
         if self._mf is not None:
             self._mf.change_model_ws(new_pth=new_pth,
                                      reset_external=reset_external)
-        #if hasattr(self,"_mt"):
+        # if hasattr(self,"_mt"):
         if self._mt is not None:
             self._mt.change_model_ws(new_pth=new_pth,
                                      reset_external=reset_external)
-        super(Seawat,self).change_model_ws(new_pth=new_pth,
-                                           reset_external=reset_external)
+        super(Seawat, self).change_model_ws(new_pth=new_pth,
+                                            reset_external=reset_external)
+
     def write_name_file(self):
         """
         Write the name file
@@ -237,7 +293,8 @@ class Seawat(BaseModel):
         if self.glo is not None:
             if self.glo.unit_number[0] > 0:
                 f_nam.write('{:14s} {:5d}  {}\n'.format(self.glo.name[0],
-                                                        self.glo.unit_number[0],
+                                                        self.glo.unit_number[
+                                                            0],
                                                         self.glo.file_name[0]))
         # Write list file entry
         f_nam.write('{:14s} {:5d}  {}\n'.format(self.lst.name[0],
@@ -297,7 +354,6 @@ class Seawat(BaseModel):
                 tag = "DATA(BINARY)"
             f_nam.write('{0:14s} {1:5d}  {2}\n'.format(tag, u, f))
 
-
         # write the output files
         for u, f, b in zip(self.output_units, self.output_fnames,
                            self.output_binflag):
@@ -313,7 +369,7 @@ class Seawat(BaseModel):
         return
 
     @staticmethod
-    def load(f, version='seawat', exe_name='swt_v4', verbose=False,
+    def load(f, version='seawat', exe_name='swtv4', verbose=False,
              model_ws='.', load_only=None):
         """
         Load an existing model.
@@ -329,7 +385,7 @@ class Seawat(BaseModel):
 
         exe_name : string
             The name of the executable to use if this loaded model is run.
-            (default is swt_v4.exe)
+            (default is swtv4.exe)
 
         verbose : bool
             Write information on the load process if True.
@@ -391,8 +447,6 @@ class Seawat(BaseModel):
             mt.external_fnames = []
             ms._mt = mt
         ms._mf = mf
-
-
 
         # return model object
         return ms

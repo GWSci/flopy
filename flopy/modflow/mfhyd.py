@@ -35,27 +35,32 @@ class ModflowHyd(Package):
         is located may be a no-flow cell. (default is -999.)
     obsdata : list of lists, numpy array, or numpy recarray (nhyd, 7)
         Each row of obsdata includes data defining pckg (3 character string),
-        arr (2 characater string), intyp (1 character string) klay (int),
-        xl (float), yl (float), hydlbl (14 character string) for each observation.
+        arr (2 character string), intyp (1 character string) klay (int),
+        xl (float), yl (float), hydlbl (14 character string) for each
+        observation.
 
         pckg : str
-            is a 3-character flag to indicate which package is to be addressed by
-            hydmod for the hydrograph of each observation point.
+            is a 3-character flag to indicate which package is to be addressed
+            by hydmod for the hydrograph of each observation point.
         arr : str
-            is a text code indicating which model data value is to be accessed for the hydrograph of
-            each observation point.
+            is a text code indicating which model data value is to be accessed
+            for the hydrograph of each observation point.
         intyp : str
-            is a 1-character value to indicate how the data from the specified feature
-            are to be accessed; The two options are 'I' for interpolated value or 'C'
-            for cell value (intyp must be 'C' for STR and SFR Package hydrographs.
+            is a 1-character value to indicate how the data from the specified
+            feature are to be accessed; The two options are 'I' for
+            interpolated value or 'C' for cell value (intyp must be 'C' for
+            STR and SFR Package hydrographs.
         klay : int
-            is the layer sequence number (zero-based) of the array to be addressed by HYDMOD.
+            is the layer sequence number (zero-based) of the array to be
+            addressed by HYDMOD.
         xl : float
-            is the coordinate of the hydrograph point in model units of length measured
-            parallel to model rows, with the origin at the lower left corner of the model grid.
+            is the coordinate of the hydrograph point in model units of length
+            measured parallel to model rows, with the origin at the lower left
+            corner of the model grid.
         yl : float
-            is the coordinate of the hydrograph point in model units of length measured parallel to model
-            columns, with the origin at the lower left corner of the model grid.
+            is the coordinate of the hydrograph point in model units of length
+            measured parallel to model columns, with the origin at the lower
+            left corner of the model grid.
         hydlbl : str
             is used to form a label for the hydrograph.
 
@@ -163,9 +168,9 @@ class ModflowHyd(Package):
         obs = ModflowHyd.get_empty(nhyd)
         if isinstance(obsdata, list):
             if len(obsdata) != nhyd:
-                raise RuntimeError(
-                    'ModflowHyd: nhyd ({}) does not equal length of obsdata ({}).'.format(
-                        nhyd, len(obsdata)))
+                e = 'ModflowHyd: nhyd ({}) does not equal '.format(nhyd) + \
+                    'length of obsdata ({}).'.format(len(obsdata))
+                raise RuntimeError(e)
             for idx in range(nhyd):
                 obs['pckg'][idx] = obsdata[idx][0]
                 obs['arr'][idx] = obsdata[idx][1]
@@ -246,7 +251,7 @@ class ModflowHyd(Package):
 
     @staticmethod
     def get_empty(ncells=0):
-        # get an empty recaray that correponds to dtype
+        # get an empty recarray that corresponds to dtype
         dtype = ModflowHyd.get_default_dtype()
         return create_empty_recarray(ncells, dtype)
 

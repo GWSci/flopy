@@ -8,6 +8,10 @@ author:
     - Jeremy T. White
     - Andrew T. Leaf
     - Scott R. Paulinski
+    - Joshua D. Larsen
+    - Michael W. Toews
+    - Eric D. Morway
+    - Jason C. Bellino
     - Jeffrey Starn
     - Michael N. Fienen
 header-includes:
@@ -17,22 +21,24 @@ header-includes:
     - \fancyhf{{}}
     - \fancyhead[LE, LO, RE, RO]{}
     - \fancyhead[CE, CO]{FloPy Release Notes}
-    - \fancyfoot[LE, RO]{FloPy version 3.2.9 &mdash; develop}
+    - \fancyfoot[LE, RO]{FloPy version 3.2.13}
     - \fancyfoot[CO, CE]{\thepage\ of \pageref{LastPage}}
-    - \fancyfoot[RE, LO]{03/20/2018}
+    - \fancyfoot[RE, LO]{06/01/2019}
 geometry: margin=0.75in
 ---
 
 Introduction
 -----------------------------------------------
 
-FloPy includes support for MODFLOW-2000, MODFLOW-2005, MODFLOW-NWT, and MODFLOW-USG. Other supported MODFLOW-based models include MODPATH (version 6), MT3DMS, MT3D-USGS,  and SEAWAT.
-
-FloPy now includes beta support for MODFLOW 6.  
+FloPy includes support for MODFLOW 6, MODFLOW-2005, MODFLOW-NWT, MODFLOW-USG, and MODFLOW-2000. Other supported MODFLOW-based models include MODPATH (version 6 and 7), MT3DMS, MT3D-USGS, and SEAWAT.
 
 For general modeling issues, please consult a modeling forum, such as the [MODFLOW Users Group](https://groups.google.com/forum/#!forum/modflow).  Other MODFLOW resources are listed in the [MODFLOW Resources](https://github.com/modflowpy/flopy#modflow-resources) section.
 
-If you think you have found a bug in FloPy, or if you would like to suggest an improvement or enhancement, please submit a new issue through the [Github Issue tracker](https://github.com/modflowpy/flopy/issues).
+
+Contributing
+------------------------------------------------
+
+Bug reports, code contributions, or improvements to the documentation are welcome from the community. Prior to contributing, please read up on our guidelines for [contributing](CONTRIBUTING.md) and then check out one of our issues in the [hotlist: community-help](https://github.com/modflowpy/flopy/labels/hotlist%3A%20community%20help).
 
 
 Documentation
@@ -50,17 +56,29 @@ How to Cite
 
 ##### ***Software/Code citation for FloPy:***
 
-[Bakker, M., Post, V., Langevin, C.D., Hughes, J.D., White, J.T., Starn, J.J., and Fienen, M.N., 2018, FloPy v3.2.9 &mdash; develop: U.S. Geological Survey Software Release, 20 March 2018, http://dx.doi.org/10.5066/F7BK19FH](http://dx.doi.org/10.5066/F7BK19FH)
+[Bakker, M., Post, V., Langevin, C.D., Hughes, J.D., White, J.T., Starn, J.J., and Fienen, M.N., 2019, FloPy v3.2.13 &mdash; release candidate: U.S. Geological Survey Software Release, 01 June 2019, http://dx.doi.org/10.5066/F7BK19FH](http://dx.doi.org/10.5066/F7BK19FH)
 
+
+Disclaimer
+----------
+
+This software is preliminary or provisional and is subject to revision. It is
+being provided to meet the need for timely best science. The software has not
+received final approval by the U.S. Geological Survey (USGS). No warranty,
+expressed or implied, is made by the USGS or the U.S. Government as to the
+functionality of the software and related material nor shall the fact of release
+constitute any such warranty. The software is provided on the condition that
+neither the USGS nor the U.S. Government shall be held liable for any damages
+resulting from the authorized or unauthorized use of the software.
 
 Installation
 -----------------------------------------------
-To install FloPy version 3.2.9 &mdash; develop from the USGS FloPy website:
+To install FloPy version 3.2.13 from the USGS FloPy website:
 ```
-pip install https://water.usgs.gov/ogw/flopy/flopy-3.2.9.zip
+pip install https://water.usgs.gov/ogw/flopy/flopy-3.2.13.zip
 ```
 
-To update to FloPy version 3.2.9 &mdash; develop from the USGS FloPy website:
+To update to FloPy version 3.2.13 from the USGS FloPy website:
 ```
-pip install https://water.usgs.gov/ogw/flopy/flopy-3.2.9.zip --upgrade
+pip install https://water.usgs.gov/ogw/flopy/flopy-3.2.13.zip --upgrade
 ```

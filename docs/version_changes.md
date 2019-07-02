@@ -1,13 +1,73 @@
 FloPy Changes
 -----------------------------------------------
+### Version 3.2.12
+
+* Added a check method for OC package (#558)
+* Change default map projection from EPSG:4326 to None (#535)
+* Refactor warning message visibility and categories (#554, #575)
+* Support for MODFLOW 6 external binary files added. Flopy can read/write binary files containing list and array data (#470, #553).
+* Added silent option for MODFLOW 6 write_simulation (#552)
+* Refactored MODFLOW-6 data classes. File writing operations moved from mfdata*.py to new classes created in mffileaccess.py. Data storage classes moved from mfdata.py to mfdatastorage.py. MFArray, MFList, and MFScalar interface classes simplified with most of the data processing code moved to mfdatastorage.py and mffileaccess.py.
+* Added MODFLOW 6 quickstart example to front page.
+* Added lgrutil test as autotest/t063_test_lgrutil.py and implemented a get_replicated_parent_array() method to the Lgr class so that the user can pass in a parent array and get back an array that is the size of the child model.
+* Refactored much of the flopy code style to conform with Python conventions and those checked by Codacy.  Added an automated Codacy check as part of the pull request and commit checks.
+
+* Bug fixes:
+
+    * Fixed bug in Mt3dms.load to show correct error message when loading non-existent NAM file (#545)
+    * Removed errant SFT parameter contained in Mt3dUzt.__init__ routine (#572)
+    * Fixed DISV shapefile export bug that applied layer 1 parameter values to all model layers during export (#508)
+    * Updated ModflowSfr2.load to store channel_geometry and channel_flow_data (6d, 6e) by nseg instead of itmp position (#546)
+    * Fixed bug in ModflowMnw2.make_node_data to be able to set multiple wells with different numbers of nodes (#556)
+    * Fixed bug reading MODFLOW 6 comma separated files (#509)
+    * Fixed bug constructing a grid class with MODFLOW-USG (#513)
+    * Optimized performance of grid class by minimizing redundant operations through use of data result caching (#520)
+    * Fixed bug passing multiple auxiliary variables for MODFLOW 6 array data (#533)
+    * Fixed bug in Mt3dUzt.__init__;  the variable ioutobs doesn't exist in the UZT package and was removed.
+    * Fixed MODFLOW-LGR bug in which ascii files were not able to be created for some output.  Added better testing of the MODFLOW-LGR capabilities to t035_test.py.
+    * Fixed multiple issues in mfdis that resulted in incorrect row column determination when using the method get_rc_from_node_coordinates (#560).  Added better testing of this to t007_test.py.
+    * Fixed the export_array_contours function as contours would not export in some cases (#577).  Added tests of export_array_contours and export_array to t007_test.py as these methods were not tested at all.
+
+### Version 3.2.11
+* Added support for the drain return package.
+* Added support for pyshp version 2.x, which contains a different call signature for the writer than earlier versions.
+* Added a new flopy3_MT3DMS_examples notebook, which uses Flopy to reproduce the example problems described in the MT3DMS documentation report by Zheng and Wang (1999).
+* Pylint is now used on Travis for the Python 3.5 distribution to check for coding errors.
+* Added testing with Python 3.7 on Travis, dropped testing Python 3.4.
+* Added a new htop argument to the vtk writer, which allows cell tops to be defined by the simulated head.
+* Generalized exporting and plotting to also work with MODFLOW 6. Added a new grid class and deprecated SpatialReference class. Added new plotting interfaces, `PlotMapView` and `PlotCrossSection`. Began deprecation of `ModelMap` and `ModelCrossSection` classes.
+* Spatial reference system cache moved to epsgref.json in the user's data directory.
+* Attempts to read empty files from flopy.utils raise a IOError exception.
+* Changed interface for creating and accessing MODFLOW 6 observation, time series, and time array series packages. These packages can now be created and accessed directly from the package that references them.  These changes are not backward compatible, and will require existing scripts to be modified.  See the flopy3_mf6_obs_ts_tas.ipynb notebook for instructions.
+* Changed the MODFLOW 6 fname argument to be filename.  This change is not backward compatible, and will require existing scripts to be modified if the fname argument was used in the package constructor.
+* Added modflow-nwt options support for `ModflowWel`, `ModflowSfr2`, and `ModflowUzf1` via the `OptionBlock` class.
+
+* Bug fixes:
+    * Removed variable MXUZCON from `mtuzt.py` that was present during the development of MT3D-USGS, but was not included in the release version of MT3D-USGS. 
+    * Now account for UZT -> UZT2 changes with the release of MT3D-USGS 1.0.1.  Use of UZT is no longer supported.
+    * Fixed bug in `mfuzf1.py` when reading and writing `surfk` when `specifysurfk = True`.
+    * Fixed bug in `ModflowStr.load()`, utility would fail to load when comments were present.
+    * Fixed bug in MNW2 in which nodes were not sorted correctly.
+    * Ensure that external 1-D free arrays are written on one line.
+    * Typos corrected for various functions, keyword arguments, property names, input file options, and documentation.
+    * Fixed bug in `Mt3dUzt.__init__` that originated when copying code from mtsft.py to get started on mtuzt.py class.  The variable ioutobs doesn't exist in the UZT package and should never have appeared in the package to begin with.
+
 ### Version 3.2.10
 * Added parameter_load variable to `mbase` that is set to true if parameter data are applied in the model (only used in models that support parameters). If this is set to `True` `free_format_input` is set to `True` (if currently `False`) when the `write_input()` method is called. This change preserves the precision of parameter data (which is free format data).
 * MODFLOW 6 model and simulation packages can not be retrieved as a `MFSimulation` attribute
 * Added support for multicomponent load in `mfsft.py`
-* Added functionality to read esri-style epsg codes from [spatialreference.org](http://spatialreference.org).
+* Added functionality to read esri-style epsg codes from [spatialreference.org](https://spatialreference.org).
 * Added functionality to MODFLOW 6 that will automatically replace the existing package with the one being added if it has the same name as the existing package.
 * Added separate MODFLOW 6 model classes for each model type. Model classes contain name file options.
 * Added standard `run_model()` method arguments to mf6 `run_simulation()` method.
+* some performance improvements to checking
+* `SpatialReference.export_array()` now writes 3-D numpy arrays to multiband GeoTiffs
+* Add load support to for MNW1; ModflowMnw1 now uses a `stress_period_data` `Mflist` to store MNW information, similar to other BC packages.
+* Added a Triangle class that is a light wrapper for the Triangle program for generating triangular meshes.  Added a notebook called flopy3_triangle.ipynb that demonstrates how to use it and build a MODFLOW 6 model with a triangular mesh.  The current version of this Triangle class should be considered beta functionality as it is likely to change.
+* Added support for MODPATH 7 (beta).
+* Added support for MODPATH 3 and 5 pathline and endpoint output files.
+* Added support for MODPATH timeseries output files (`flopy.utils.TimeseriesFile()`).
+* Added support for plotting MODPATH timeseries output data (`plot_timeseries()`) with ModelMap.
 
 * Bug fixes:
     * Fixed issue in HOB when the same layer is specified in the `MLAY` data (dataset 4). If the layer exists the previous fraction value is added to the current value.
@@ -23,6 +83,8 @@ FloPy Changes
     * Fixed bug in `mfsfr.py` when writing kinematic data (`irtflg >0`).
     * Fixed issue from change in MODFLOW 6 `inspect.getargspec()` method (for getting method arguments).
     * Fixed MODFLOW 6 BINARY keyword for reading binary data from a file using  `OPEN/CLOSE` (needs parentheses around it).
+    * Fixed bug in `mtlkt.py` when initiating, loading, and/or writing lkt input file related to multi-species problems.
+
 
 ### Version 3.2.9
 * Modified MODFLOW 5 OC stress_period_data=None default behaviour. If MODFLOW 5 OC stress_period_data is not provided then binary head output is saved for the last time step of each stress period.
@@ -50,16 +112,15 @@ FloPy Changes
 	* `SpatialReference.write_gridSpec` was not converting the model origin coordinates to model length units.
 	* shorted integer field lengths written to shapefiles to 18 characters; some readers may misinterpret longer field lengths as float dtypes.
 
+
 ### Version 3.2.8
 * Added `has_package(name)` method to see if a package exists. This feature goes nicely with `get_package(name)` method.
 * Added `set_model_units()` method to change model units for all files created by a model. This method can be useful when creating MODFLOW-LGR models from scratch.
+* Added SFR2 package functionality
+	* `export_inlets` method to write shapefile showing locations where external flows are entering the stream network.  
 * Bug fixes:
     * Installation: Added dfn files required by MODFLOW 6 functionality to MANIFEST.in so that they are included in the distribution.
     * SFR2 package: Fixed issue reading transient data when `ISFOPT` is 4 or 5 for the first stress period.
-
-### Version 3.2.7 - develop
-* Added SFR2 package functionarlity
-	* `export_inlets` method to write shapefile showing locations where external flows are entering the stream network.  
 
 		
 ### Version 3.2.7
@@ -68,11 +129,11 @@ FloPy Changes
 * Added support for FORTRAN free format array data using n*value where n is the number of times value is repeated.
 * Added support for comma separators in 1D data in LPF and UPF files
 * Added support for comma separators on non array data lines in DIS, BCF, LPF, UPW, HFB, and RCH Packages.
-* Added `.reset_budgetunit()` method to OC package to faciltate saving cell-by-cell binary output to a single file for all packages that can save cell-by-cell output.
+* Added `.reset_budgetunit()` method to OC package to facilitate saving cell-by-cell binary output to a single file for all packages that can save cell-by-cell output.
 * Added a `.get_residual()` method to the `CellBudgetFile` class.
 * Added support for binary stress period files (`OPEN/CLOSE filename (BINARY)`) in `wel` stress packages on load and instantiation. Will extend to other list-based MODFLOW stress packages.
 * Added a new `flopy.utils.HeadUFile` Class (located in binaryfile.py) for reading unstructured head files from MODFLOW-USG.  The `.get_data()` method for this class returns a list of one-dimensional head arrays for each layer.
-* Added metadata.acdd class to fetch model metadata from ScienceBase.gov and manage CF/ACDD-complient metadata for NetCDF export
+* Added metadata.acdd class to fetch model metadata from ScienceBase.gov and manage CF/ACDD-complaint metadata for NetCDF export
 * Added sparse export option for boundary condition stress period data, where only cells for that B.C. are exported (for example, `package.stress_period_data.export('stuff.shp', sparse=True)`)
 * Added additional SFR2 package functionality: 
 	*  `.export_linkages()` and `.export_outlets()` methods to export routing linkages and outlets
@@ -159,7 +220,7 @@ FloPy Changes
 * Added support for LAK and GAGE packages - full load and write functionality supported.
 * Added support for MNW2 package. Load and write of .mnw2 package files supported. Support for .mnwi, or the results files (.qsu, .byn) not yet implemented.
 * Improved support for changing the output format of arrays and variables written to MODFLOW input files. 
-* Restructued SEAWAT support so that packages can be added directly to the SEAWAT model, in addition to the approach of adding a modflow model and a mt3d model.  Can now load a SEAWAT model.
+* Restructured SEAWAT support so that packages can be added directly to the SEAWAT model, in addition to the approach of adding a modflow model and a mt3d model.  Can now load a SEAWAT model.
 * Added load support for MT3DMS Reactions package
 * Added multi-species support for MT3DMS Reactions package
 * Added static method to Mt3dms().load_mas that reads an MT3D mass file and returns a recarray

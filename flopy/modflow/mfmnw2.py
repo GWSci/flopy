@@ -1,4 +1,3 @@
-# from numpy import empty, zeros, ones, where
 import os
 import sys
 import warnings
@@ -14,95 +13,121 @@ from ..pakbase import Package
 
 
 class Mnw(object):
-    """Multi-Node Well object class
+    """
+    Multi-Node Well object class
 
     Parameters
     ----------
     wellid : int
-        is the name of the well. This is a unique alphanumeric identification label for each well.
-        The text string is limited to 20 alphanumeric characters. If the name of the well includes spaces,
-        then enclose the name in quotes.
+        is the name of the well. This is a unique alphanumeric identification
+        label for each well. The text string is limited to 20 alphanumeric
+        characters. If the name of the well includes spaces, then enclose the
+        name in quotes.
     nnodes : int
         is the number of cells (nodes) associated with this well.
         NNODES normally is > 0, but for the case of a vertical borehole,
-        setting NNODES < 0 will allow the user to specify the elevations of the tops and bottoms of well screens
-        or open intervals (rather than grid layer numbers), and the absolute value of NNODES
-        equals the number of open intervals (or well screens) to be specified in dataset 2d.
-        If this option is used, then the model will compute the layers in which the open intervals occur,
-        the lengths of the open intervals, and the relative vertical position of the open interval
-        within a model layer (for example, see figure 14 and related discussion).
+        setting NNODES < 0 will allow the user to specify the elevations of
+        the tops and bottoms of well screens or open intervals (rather than
+        grid layer numbers), and the absolute value of NNODES equals the
+        number of open intervals (or well screens) to be specified in dataset
+        2d. If this option is used, then the model will compute the layers in
+        which the open intervals occur, the lengths of the open intervals,
+        and the relative vertical position of the open interval within a model
+        layer (for example, see figure 14 and related discussion).
     losstype : str
-        is a character flag to determine the user-specified model for well loss (equation 2).
-        Available options (that is, place one of the following approved words in this field) are:
-        NONE    there are no well corrections and the head in the well is assumed to equal the head in the cell.
-                This option (hWELL = hn) is only valid for a single-node well (NNODES = 1).
-                (This is equivalent to using the original WEL Package of MODFLOW,
-                but specifying the single-node well within the MNW2 Package enables the use of constraints.)
-        THIEM   this option allows for only the cell-to-well correction at the well
-                based on the Thiem (1906) equation; head in the well is determined from equation 2
-                as (hWELL = hn + AQn), and the model computes A on the basis of the user-specified well radius (Rw)
-                and previously defined values of cell transmissivity and grid spacing.
-                Coefficients B and C in equation 2 are automatically set = 0.0.
-                User must define Rw in dataset 2c or 2d.
-        SKIN    this option allows for formation damage or skin corrections at the well:
-                hWELL = hn + AQn + BQn (from equation 2),
-                where A is determined by the model from the value of Rw, and B is determined by the model
-                from Rskin and Kskin. User must define Rw, Rskin, and Kskin in dataset 2c or 2d.
-        GENERAL head loss is defined with coefficients A, B, and C and power exponent P
-                (hWELL = hn + AQn + BQn + CQnP). A is determined by the model from the value of Rw.
-                User must define Rw, B, C, and P in dataset 2c or 2d. A value of P = 2.0 is suggested
-                if no other data are available (the model allows 1.0 <= P <= 3.5).
-                Entering a value of C = 0 will result in a "linear" model
-                in which the value of B is entered directly
-                (rather than entering properties of the skin, as with the SKIN option).
+        is a character flag to determine the user-specified model for well loss
+        (equation 2). Available options (that is, place one of the following
+        approved words in this field) are:
+        NONE    there are no well corrections and the head in the well is
+                assumed to equal the head in the cell. This option (hWELL = hn)
+                is only valid for a single-node well (NNODES = 1). (This is
+                equivalent to using the original WEL Package of MODFLOW,
+                but specifying the single-node well within the MNW2 Package
+                enables the use of constraints.)
+        THIEM   this option allows for only the cell-to-well correction at the
+                well based on the Thiem (1906) equation; head in the well is
+                determined from equation 2 as (hWELL = hn + AQn), and the model
+                computes A on the basis of the user-specified well radius (Rw)
+                and previously defined values of cell transmissivity and grid
+                spacing. Coefficients B and C in equation 2 are automatically
+                set = 0.0. User must define Rw in dataset 2c or 2d.
+        SKIN    this option allows for formation damage or skin corrections at
+                the well. hWELL = hn + AQn + BQn (from equation 2), where A is
+                determined by the model from the value of Rw, and B is
+                determined by the model from Rskin and Kskin. User must define
+                Rw, Rskin, and Kskin in dataset 2c or 2d.
+        GENERAL head loss is defined with coefficients A, B, and C and power
+                exponent P (hWELL = hn + AQn + BQn + CQnP). A is determined by
+                the model from the value of Rw. User must define Rw, B, C, and
+                P in dataset 2c or 2d. A value of P = 2.0 is suggested if no
+                other data are available (the model allows 1.0 <= P <= 3.5).
+                Entering a value of C = 0 will result in a "linear" model in
+                which the value of B is entered directly (rather than entering
+                properties of the skin, as with the SKIN option).
         SPECIFYcwc the user specifies an effective conductance value
-                (equivalent to the combined effects of the A, B, and C well-loss coefficients expressed in equation 15)
-                between the well and the cell representing the aquifer, CWC. User must define CWC in dataset 2c or 2d.
-                If there are multiple screens within the grid cell or if partial penetration corrections are to be made,
-                then the effective value of CWC for the node may be further adjusted automatically by MNW2.
+                (equivalent to the combined effects of the A, B, and C
+                well-loss coefficients expressed in equation 15) between the
+                well and the cell representing the aquifer, CWC. User must
+                define CWC in dataset 2c or 2d. If there are multiple screens
+                within the grid cell or if partial penetration corrections are
+                to be made, then the effective value of CWC for the node may
+                be further adjusted automatically by MNW2.
     pumploc : int
-        is an integer flag pertaining to the location along the borehole of the pump intake (if any).
-        If PUMPLOC = 0, then either there is no pump or the intake location (or discharge point for
-        an injection well) is assumed to occur above the first active node associated with the multi- node well
-        (that is, the node closest to the land surface or to the wellhead).
-        If PUMPLOC > 0, then the cell in which the intake (or outflow) is located
-        will be specified in dataset 2e as a LAY-ROW-COL grid location. For a vertical well only,
-        specifying PUMPLOC < 0, will enable the option to define the vertical position of the pump intake (or outflow)
-        as an elevation in dataset 2e (for the given spatial grid location [ROW-COL] defined for this well in 2d).
+        is an integer flag pertaining to the location along the borehole of
+        the pump intake (if any). If PUMPLOC = 0, then either there is no pump
+        or the intake location (or discharge point for an injection well) is
+        assumed to occur above the first active node associated with the multi-
+        node well (that is, the node closest to the land surface or to the
+        wellhead). If PUMPLOC > 0, then the cell in which the intake (or
+        outflow) is located will be specified in dataset 2e as a LAY-ROW-COL
+        grid location. For a vertical well only, specifying PUMPLOC < 0, will
+        enable the option to define the vertical position of the pump intake
+        (or outflow) as an elevation in dataset 2e (for the given spatial grid
+        location [ROW-COL] defined for this well in 2d).
     qlimit : int
-        is an integer flag that indicates whether the water level (head) in the well will be used to
-        constrain the pumping rate. If Qlimit = 0, then there are no constraints for this well.
-        If Qlimit > 0, then pumpage will be limited (constrained) by the water level in the well,
-        and relevant parameters are constant in time and defined below in dataset 2f.
-        If Qlimit < 0, then pumpage will be limited (constrained) by the water level in the well,
-        and relevant parameters can vary with time and are defined for every stress period in dataset 4b.
+        is an integer flag that indicates whether the water level (head) in
+        the well will be used to constrain the pumping rate. If Qlimit = 0,
+        then there are no constraints for this well. If Qlimit > 0, then
+        pumpage will be limited (constrained) by the water level in the well,
+        and relevant parameters are constant in time and defined below in
+        dataset 2f. If Qlimit < 0, then pumpage will be limited (constrained)
+        by the water level in the well, and relevant parameters can vary with
+        time and are defined for every stress period in dataset 4b.
     ppflag : int
-        is an integer flag that determines whether the calculated head in the well will be corrected
-        for the effect of partial penetration of the well screen in the cell.
-        If PPFLAG = 0, then the head in the well will not be adjusted for the effects of partial penetration.
-        If PPFLAG > 0, then the head in the well will be adjusted for the effects of partial penetration
-        if the section of well containing the well screen is vertical
-        (as indicated by identical row-column locations in the grid).
-        If NNODES < 0 (that is, the open intervals of the well are defined by top and bottom elevations),
-        then the model will automatically calculate the fraction of penetration for each node and the
-        relative vertical position of the well screen. If NNODES > 0, then the fraction of penetration
-        for each node must be defined in dataset 2d (see below) and the well screen will be assumed
-        to be centered vertically within the thickness of the cell
-        (except if the well is located in the uppermost model layer that is under unconfined conditions,
-        in which case the bottom of the well screen will be assumed to be aligned with the bottom boundary
-        of the cell and the assumed length of well screen will be based on the initial head in that cell).
+        is an integer flag that determines whether the calculated head in the
+        well will be corrected for the effect of partial penetration of the
+        well screen in the cell. If PPFLAG = 0, then the head in the well will
+        not be adjusted for the effects of partial penetration. If PPFLAG > 0,
+        then the head in the well will be adjusted for the effects of partial
+        penetration if the section of well containing the well screen is
+        vertical (as indicated by identical row-column locations in the grid).
+        If NNODES < 0 (that is, the open intervals of the well are defined by
+        top and bottom elevations), then the model will automatically calculate
+        the fraction of penetration for each node and the relative vertical
+        position of the well screen. If NNODES > 0, then the fraction of
+        penetration for each node must be defined in dataset 2d (see below)
+        and the well screen will be assumed to be centered vertically within
+        the thickness of the cell (except if the well is located in the
+        uppermost model layer that is under unconfined conditions, in which
+        case the bottom of the well screen will be assumed to be aligned with
+        the bottom boundary of the cell and the assumed length of well screen
+        will be based on the initial head in that cell).
     pumpcap : int
-        is an integer flag and value that determines whether the discharge of a pumping (withdrawal)
-        well (Q < 0.0) will be adjusted for changes in the lift (or total dynamic head) with time.
-        If PUMPCAP = 0, then the discharge from the well will not be adjusted on the basis of changes in lift.
-        If PUMPCAP > 0 for a withdrawal well, then the discharge from the well will be adjusted
-        on the basis of the lift, as calculated from the most recent water level in the well.
-        In this case, data describing the head-capacity relation for the pump must be listed in datasets 2g and 2h,
-        and the use of that relation can be switched on or off for each stress period using a flag in dataset 4a.
-        The number of entries (lines) in dataset 2h corresponds to the value of PUMPCAP.
-        If PUMPCAP does not equal 0, it must be set to an integer value of between 1 and 25, inclusive.
+        is an integer flag and value that determines whether the discharge of
+        a pumping (withdrawal) well (Q < 0.0) will be adjusted for changes in
+        the lift (or total dynamic head) with time. If PUMPCAP = 0, then the
+        discharge from the well will not be adjusted on the basis of changes
+        in lift. If PUMPCAP > 0 for a withdrawal well, then the discharge from
+        the well will be adjusted on the basis of the lift, as calculated from
+        the most recent water level in the well. In this case, data describing
+        the head-capacity relation for the pump must be listed in datasets 2g
+        and 2h, and the use of that relation can be switched on or off for
+        each stress period using a flag in dataset 4a. The number of entries
+        (lines) in dataset 2h corresponds to the value of PUMPCAP. If PUMPCAP
+        does not equal 0, it must be set to an integer value of between 1 and
+        25, inclusive.
     rw : float
-        radius of the well (losstype == 'THEIM', 'SKIN', or 'GENERAL')
+        radius of the well (losstype == 'THIEM', 'SKIN', or 'GENERAL')
     rskin : float
         radius to the outer limit of the skin (losstype == 'SKIN')
     kskin : float
@@ -120,7 +145,8 @@ class Mnw(object):
         cell-to-well conductance.
         (losstype == 'SPECIFYcwc')
     pp : float
-        fraction of partial penetration for the cell. Only specify if PPFLAG > 0 and NNODES > 0.
+        fraction of partial penetration for the cell. Only specify if
+        PFLAG > 0 and NNODES > 0.
     k : int
         layer index of well (zero-based)
     i : int
@@ -132,14 +158,16 @@ class Mnw(object):
     zbotm : float
         bottom elevation of open intervals of vertical well.
     node_data : numpy record array
-        table containing MNW data by node. A blank node_data template can be created
-        via the ModflowMnw2.get_empty_mnw_data() static method.
+        table containing MNW data by node. A blank node_data template can be
+        created via the ModflowMnw2.get_empty_mnw_data() static method.
 
-        Note: Variables in dataset 2d (e.g. rw) can be entered as a single value for the entire well (above),
-        or in node_data (or dataset 2d) by node. Variables not in dataset 2d (such as pumplay) can be
-        included in node data for convenience (to allow construction of MNW2 package from a table),
-        but are only written to MNW2 as a single variable. When writing non-dataset 2d variables to MNW2 input,
-        the first value for the well will be used.
+        Note: Variables in dataset 2d (e.g. rw) can be entered as a single
+        value for the entire well (above), or in node_data (or dataset 2d) by
+        node. Variables not in dataset 2d (such as pumplay) can be included
+        in node data for convenience (to allow construction of MNW2 package
+        from a table), but are only written to MNW2 as a single variable.
+        When writing non-dataset 2d variables to MNW2 input, the first value
+        for the well will be used.
 
         Other variables (e.g. hlim) can be entered here as
         constant for all stress periods, or by stress period below in stress_period_data.
@@ -157,7 +185,7 @@ class Mnw(object):
             zbotm : float
                 bottom elevation of open intervals of vertical well.
             wellid : str
-            losstyp : str
+            losstype : str
             pumploc : int
             qlimit : int
             ppflag : int
@@ -176,8 +204,8 @@ class Mnw(object):
             zpump : float
             hlim : float
             qcut : int
-            gfrcmn : float
-            gfrcmx : float
+            qfrcmn : float
+            qfrcmx : float
             hlift : float
             liftq0 : float
             liftqmax : float
@@ -186,93 +214,123 @@ class Mnw(object):
             qn : float
 
     stress_period_data : numpy record array
-        table containing MNW pumping data for all stress periods (dataset 4 in the MNW2 input instructions).
-        A blank stress_period_data template can be created via the Mnw.get_empty_stress_period_data() static method.
+        table containing MNW pumping data for all stress periods (dataset 4 in
+        the MNW2 input instructions). A blank stress_period_data template can
+        be created via the Mnw.get_empty_stress_period_data() static method.
         Columns are:
             per : int
                 stress period
             qdes : float
-                is the actual (or maximum desired, if constraints are to be applied) volumetric pumping rate
-                (negative for withdrawal or positive for injection) at the well (L3/T). Qdes should be
-                set to 0 for nonpumping wells. If constraints are applied, then the calculated volumetric withdrawal
-                or injection rate may be adjusted to range from 0 to Qdes and is not allowed
-                to switch directions between withdrawal and injection conditions during any stress period.
-                When PUMPCAP > 0, in the first stress period in which Qdes is specified with a negative value,
-                Qdes represents the maximum operating discharge for the pump; in subsequent stress periods,
-                any different negative values of Qdes are ignored, although values are subject to
-                adjustment for CapMult. If Qdes >= 0.0, then pump-capacity adjustments are not applied.
+                is the actual (or maximum desired, if constraints are to be
+                applied) volumetric pumping rate (negative for withdrawal or
+                positive for injection) at the well (L3/T). Qdes should be
+                set to 0 for nonpumping wells. If constraints are applied,
+                then the calculated volumetric withdrawal or injection rate
+                may be adjusted to range from 0 to Qdes and is not allowed
+                to switch directions between withdrawal and injection
+                conditions during any stress period. When PUMPCAP > 0, in the
+                first stress period in which Qdes is specified with a negative
+                value, Qdes represents the maximum operating discharge for the
+                pump; in subsequent stress periods, any different negative
+                values of Qdes are ignored, although values are subject to
+                adjustment for CapMult. If Qdes >= 0.0, then pump-capacity
+                adjustments are not applied.
             capmult : int
-                is a flag and multiplier for implementing head-capacity relations during a given stress period.
-                Only specify if PUMPCAP > 0 for this well. If CapMult <= 0, then head-capacity relations
-                are ignored for this stress period. If CapMult = 1.0, then head-capacity relations defined
-                in datasets 2g and 2h are used. If CapMult equals any other positive value (for example, 0.6 or 1.1),
-                then head-capacity relations are used but adjusted and shifted by multiplying
-                the discharge value indicated by the head-capacity curve by the value of CapMult.
+                is a flag and multiplier for implementing head-capacity
+                relations during a given stress period. Only specify if
+                PUMPCAP > 0 for this well. If CapMult <= 0, then
+                head-capacity relations are ignored for this stress period.
+                If CapMult = 1.0, then head-capacity relations defined
+                in datasets 2g and 2h are used. If CapMult equals any other
+                positive value (for example, 0.6 or 1.1), then head-capacity
+                relations are used but adjusted and shifted by multiplying
+                the discharge value indicated by the head-capacity curve by
+                the value of CapMult.
             cprime : float
-                is the concentration in the injected fluid. Only specify if Qdes > 0 and GWT process is active.
+                is the concentration in the injected fluid. Only specify if
+                Qdes > 0 and GWT process is active.
             hlim : float
             qcut : int
             qfrcmn : float
             qfrcmx : float
-        Note: If auxillary variables are also being used, additional columns for these must be included.
+        Note: If auxiliary variables are also being used, additional columns
+        for these must be included.
     pumplay : int
     pumprow : int
     pumpcol : int
-        PUMPLAY, PUMPROW, and PUMPCOL are the layer, row, and column numbers, respectively, of the cell (node)
-        in this multi-node well where the pump intake (or outflow) is located. The location defined
-        in dataset 2e should correspond with one of the nodes listed in 2d for this multi-node well.
-        These variables are only read if PUMPLOC > 0 in 2b.
+        PUMPLAY, PUMPROW, and PUMPCOL are the layer, row, and column numbers,
+        respectively, of the cell (node) in this multi-node well where the
+        pump intake (or outflow) is located. The location defined in dataset
+        2e should correspond with one of the nodes listed in 2d for this
+        multi-node well. These variables are only read if PUMPLOC > 0 in 2b.
     zpump : float
-        is the elevation of the pump intake (or discharge pipe location for an injection well).
-        Zpump is read only if PUMPLOC < 0; in this case, the model assumes that the borehole is vertical
-        and will compute the layer of the grid in which the pump intake is located.
+        is the elevation of the pump intake (or discharge pipe location for an
+        injection well). Zpump is read only if PUMPLOC < 0; in this case,
+        the model assumes that the borehole is vertical and will compute the
+        layer of the grid in which the pump intake is located.
     hlim : float
-        is the limiting water level (head) in the well, which is a minimum for discharging wells
-        and a maximum for injection wells. For example, in a discharging well, when hWELL falls below hlim,
-        the flow from the well is constrained.
+        is the limiting water level (head) in the well, which is a minimum for
+        discharging wells and a maximum for injection wells. For example, in a
+        discharging well, when hWELL falls below hlim, the flow from the well
+        is constrained.
     qcut : int
-        is an integer flag that indicates how pumping limits Qfrcmn and Qfrcmx will be specified.
-        If pumping limits are to be specified as a rate (L3/T), then set QCUT > 0; if pumping limits are
-        52 Revised Multi-Node Well (MNW2) Package for MODFLOW Ground-Water Flow Model
-        to be specified as a fraction of the specified pumping rate (Qdes), then set QCUT < 0.
-        If there is not a minimum pumping rate below which the pump becomes inactive, then set QCUT = 0.
+        is an integer flag that indicates how pumping limits Qfrcmn and
+        Qfrcmx will be specified. If pumping limits are to be specified as a
+        rate (L3/T), then set QCUT > 0; if pumping limits are to be specified
+        as a fraction of the specified pumping rate (Qdes), then set QCUT < 0.
+        If there is not a minimum pumping rate below which the pump becomes
+        inactive, then set QCUT = 0.
     qfrcmn : float
-        is the minimum pumping rate or fraction of original pumping rate (a choice that depends on QCUT)
-        that a well must exceed to remain active during a stress period. The absolute value
-        of Qfrcmn must be less than the absolute value of Qfrcmx (defined next). Only specify if QCUT != 0.
+        is the minimum pumping rate or fraction of original pumping rate
+        (a choice that depends on QCUT) that a well must exceed to remain
+        active during a stress period. The absolute value of Qfrcmn must be
+        less than the absolute value of Qfrcmx (defined next). Only specify
+        if QCUT != 0.
     qfrcmx : float
-        is the minimum pumping rate or fraction of original pumping rate that must be exceeded to
-        reactivate a well that had been shut off based on Qfrcmn during a stress period. The absolute
-        value of Qfrcmx must be greater than the absolute value of Qfrcmn. Only specify if QCUT != 0.
+        is the minimum pumping rate or fraction of original pumping rate that
+        must be exceeded to reactivate a well that had been shut off based on
+        Qfrcmn during a stress period. The absolute value of Qfrcmx must be
+        greater than the absolute value of Qfrcmn. Only specify if QCUT != 0.
     hlift : float
-        is the reference head (or elevation) corresponding to the discharge point for the well.
-        This is typically at or above the land surface, and can be increased to account for additional head
-        loss due to friction in pipes.
+        is the reference head (or elevation) corresponding to the discharge
+        point for the well. This is typically at or above the land surface,
+        and can be increased to account for additional head loss due to
+        friction in pipes.
     liftq0 : float
-        is the value of lift (total dynamic head) that exceeds the capacity of the pump.
-        If the calculated lift equals or exceeds this value, then the pump is shut off and
-        discharge from the well ceases.
+        is the value of lift (total dynamic head) that exceeds the capacity of
+        the pump. If the calculated lift equals or exceeds this value, then
+        the pump is shut off and discharge from the well ceases.
     liftqmax : float
-        is the value of lift (total dynamic head) corresponding to the maximum pumping (discharge)
-        rate for the pump. If the calculated lift is less than or equal to LIFTqmax, then the pump will
-        operate at its design capacity, assumed to equal the user-specified value of Qdes (in dataset 4a).
-        LIFTqmax will be associated with the value of Qdes in the first stress period in which
-        Qdes for the well is less than 0.0.
+        is the value of lift (total dynamic head) corresponding to the maximum
+        pumping (discharge) rate for the pump. If the calculated lift is less
+        than or equal to LIFTqmax, then the pump will operate at its design
+        capacity, assumed to equal the user-specified value of Qdes
+        (in dataset 4a). LIFTqmax will be associated with the value of Qdes in
+        the first stress period in which Qdes for the well is less than 0.0.
     hwtol : float
-        is a minimum absolute value of change in the computed water level in the well allowed between
-        successive iterations; if the value of hWELL changes from one iteration to the next
-        by a value smaller than this tolerance, then the value of discharge computed from the head
-        capacity curves will be locked for the remainder of that time step. It is recommended that
-        HWtol be set equal to a value approximately one or two orders of magnitude larger than the value
-        of HCLOSE, but if the solution fails to converge, then this may have to be adjusted.
+        is a minimum absolute value of change in the computed water level in
+        the well allowed between successive iterations; if the value of hWELL
+        changes from one iteration to the next by a value smaller than this
+        tolerance, then the value of discharge computed from the head capacity
+        curves will be locked for the remainder of that time step. It is
+        recommended that HWtol be set equal to a value approximately one or
+        two orders of magnitude larger than the value of HCLOSE, but if the
+        solution fails to converge, then this may have to be adjusted.
     liftn : float
-        is a value of lift (total dynamic head) that corresponds to a known value of discharge (Qn)
-        for the given pump, specified as the second value in this line.
+        is a value of lift (total dynamic head) that corresponds to a known
+        value of discharge (Qn) for the given pump, specified as the second
+        value in this line.
     qn : float
-        is the value of discharge corresponding to the height of lift (total dynamic head)
-        specified previously on this line. Sign (positive or negative) is ignored.
+        is the value of discharge corresponding to the height of lift
+        (total dynamic head) specified previously on this line. Sign
+        (positive or negative) is ignored.
     mnwpackage : ModflowMnw2 instance
         package that mnw is attached to
+
+    Returns
+    -------
+    None
+
     """
     by_node_variables = ['k', 'i', 'j', 'ztop', 'zbotm', 'rw', 'rskin',
                          'kskin', 'B', 'C', 'P', 'cwc', 'pp']
@@ -287,8 +345,11 @@ class Mnw(object):
                  pumplay=0, pumprow=0, pumpcol=0, zpump=None,
                  hlim=None, qcut=None, qfrcmn=None, qfrcmx=None,
                  hlift=None, liftq0=None, liftqmax=None, hwtol=None,
-                 liftn=None, qn=None, mnwpackage=None,
-                 ):
+                 liftn=None, qn=None, mnwpackage=None):
+        """
+        Class constructor
+        """
+
         self.nper = nper
         self.mnwpackage = mnwpackage  # associated ModflowMnw2 instance
         self.aux = None if mnwpackage is None else mnwpackage.aux
@@ -368,7 +429,14 @@ class Mnw(object):
                 self.stress_period_data[n] = [self.__dict__[n][0]]
 
     def make_node_data(self):
-        """Makes the node data array from variables entered individually."""
+        """
+        Make the node data array from variables entered individually.
+
+        Returns
+        -------
+        None
+
+        """
         nnodes = self.nnodes
         node_data = ModflowMnw2.get_empty_node_data(np.abs(nnodes),
                                                     aux_names=self.aux)
@@ -381,14 +449,46 @@ class Mnw(object):
     @staticmethod
     def get_empty_stress_period_data(nper=0, aux_names=None, structured=True,
                                      default_value=0):
-        # get an empty recarray that correponds to dtype
+        """
+        Get an empty stress_period_data recarray that corresponds to dtype
+
+        Parameters
+        ----------
+        nper : int
+
+        aux_names
+        structured
+        default_value
+
+        Returns
+        -------
+        ra : np.recarray
+            Recarray
+
+        """
+        #
         dtype = Mnw.get_default_spd_dtype(structured=structured)
         if aux_names is not None:
             dtype = Package.add_to_dtype(dtype, aux_names, np.float32)
-        return create_empty_recarray(nper, dtype)
+        return create_empty_recarray(nper, dtype, default_value=default_value)
 
     @staticmethod
     def get_default_spd_dtype(structured=True):
+        """
+        Get the default stress period data dtype
+
+        Parameters
+        ----------
+        structured : bool
+            Boolean that defines if a structured (True) or unstructured (False)
+            dtype will be created (default is True). Not implemented for
+            unstructured.
+
+        Returns
+        -------
+        dtype : np.dtype
+
+        """
         if structured:
             return np.dtype([('k', np.int),
                              ('i', np.int),
@@ -402,54 +502,27 @@ class Mnw(object):
                              ('qfrcmn', np.float32),
                              ('qfrcmx', np.float32)])
         else:
-            pass
+            msg = 'Mnw2: get_default_spd_dtype not implemented for ' + \
+                  'unstructured grids'
+            raise NotImplementedError(msg)
 
     @staticmethod
     def get_item2_names(mnw2obj=None, node_data=None):
-        """Determine which variables are being used.
+        """
+        Get names for unknown things...
+
+        Parameters
+        ----------
+        mnw2obj : Mnw object
+            Mnw object (default is None)
+        node_data : unknown
+            Unknown what is in this parameter (default is None)
 
         Returns
         -------
-        names : list of str
-            List of names (same as variables in MNW2 Package input instructions) of columns
-            to assign (upon load) or retain (upon write) in reach_data array.
+        names : list
+        List of dtype names.
 
-        Note
-        ----
-        Lowercase is used for all variable names.
-
-            ztop : float
-                top elevation of open intervals of vertical well.
-            zbotm : float
-                bottom elevation of open intervals of vertical well.
-            wellid : str
-            losstyp : str
-            pumploc : int
-            qlimit : int
-            ppflag : int
-            pumpcap : int
-            rw : float
-            rskin : float
-            kskin : float
-            B : float
-            C : float
-            P : float
-            cwc : float
-            pp : float
-            pumplay : int
-            pumprow : int
-            pumpcol : int
-            zpump : float
-            hlim : float
-            qcut : int
-            qfrcmn : float
-            qfrcmx : float
-            hlift : float
-            liftq0 : float
-            liftqmax : float
-            hwtol : float
-            liftn : float
-            qn : float
         """
 
         if node_data is not None:
@@ -460,7 +533,8 @@ class Mnw(object):
             qlimit = node_data.qlimit[0]
             pumpcap = node_data.pumpcap[0]
             qcut = node_data.qcut[0]
-        else:  # get names based on mnw2obj attribute values
+        # get names based on mnw2obj attribute values
+        else:
             nnodes = mnw2obj.nnodes
             losstype = mnw2obj.losstype
             ppflag = mnw2obj.ppflag
@@ -502,12 +576,37 @@ class Mnw(object):
 
     @staticmethod
     def get_nnodes(node_data):
+        """
+        Get the number of MNW2 nodes.
+
+        Parameters
+        ----------
+        node_data : list
+            List of nodes???
+
+        Returns
+        -------
+        nnodes : int
+            Number of MNW2 nodes
+
+        """
         nnodes = len(node_data)
         # check if ztop and zbotm were entered,
         # flip nnodes for format 2
         if np.sum(node_data.ztop - node_data.zbotm) > 0:
             nnodes *= -1
         return nnodes
+
+    @staticmethod
+    def sort_node_data(node_data):
+        # sort by layer (layer input option)
+        if np.any(np.diff(node_data['k']) < 0):
+            node_data.sort(order=['k'])
+
+        # reverse sort by ztop if it's specified and not sorted correctly
+        if np.any(np.diff(node_data['ztop']) > 0):
+            node_data = np.sort(node_data, order=['ztop'])[::-1]
+        return node_data
 
     def check(self, f=None, verbose=True, level=1):
         """
@@ -542,7 +641,9 @@ class Mnw(object):
         return chk
 
     def _set_attributes_from_node_data(self):
-        """Populates the Mnw object attributes with values from node_data table."""
+        """
+        Populates the Mnw object attributes with values from node_data table.
+        """
         names = Mnw.get_item2_names(node_data=self.node_data)
         for n in names:
             # assign by node variables as lists if they are being included
@@ -552,12 +653,26 @@ class Mnw(object):
                 self.__dict__[n] = self.node_data[n][0]
 
     def _write_2(self, f_mnw, float_format=' {:15.7E}', indent=12):
-        """write out dataset 2 for MNW.
+        """
+        Write out dataset 2 for MNW.
 
         Parameters
         ----------
         f_mnw : package file handle
+            file handle for MNW2 input file
+        float_format : str
+            python format statement for floats (default is ' {:15.7E}').
+        indent : int
+            number of spaces to indent line (default is 12).
+
+        Returns
+        -------
+        None
+
         """
+        # enforce sorting of node data
+        self.node_data = Mnw.sort_node_data(self.node_data)
+
         # update object attributes with values from node_data
         self._set_attributes_from_node_data()
 
@@ -664,65 +779,78 @@ class ModflowMnw2(Package):
         The model object (of type :class:'flopy.modflow.mf.Modflow') to which
         this package will be added.
     mnwmax : int
-        The absolute value of MNWMAX is the maximum number of multi-node wells (MNW) to be simulated.
-        If MNWMAX is a negative number, NODTOT is read.
+        The absolute value of MNWMAX is the maximum number of multi-node wells
+        (MNW) to be simulated. If MNWMAX is a negative number, NODTOT is read.
     nodtot : int
         Maximum number of nodes.
         The code automatically estimates the maximum number of nodes (NODTOT)
-        as required for allocation of arrays. However, if a large number of horizontal wells
-        are being simulated, or possibly for other reasons, this default estimate proves to be inadequate,
-        a new input option has been added to allow the user to directly specify a value for NODTOT.
-        If this is a desired option, then it can be implemented by specifying a negative value for
-        "MNWMAX"--the first value listed in Record 1 (Line 1) of the MNW2 input data file.
-        If this is done, then the code will assume that the very next value on that line
-        will be the desired value of "NODTOT". The model will then reset "MNWMAX" to its absolute value.
-        The value of "ipakcb" will become the third value on that line, etc.
+        as required for allocation of arrays. However, if a large number of
+        horizontal wells are being simulated, or possibly for other reasons,
+        this default estimate proves to be inadequate, a new input option has
+        been added to allow the user to directly specify a value for NODTOT.
+        If this is a desired option, then it can be implemented by specifying
+        a negative value for "MNWMAX"--the first value listed in Record 1
+        (Line 1) of the MNW2 input data file. If this is done, then the code
+        will assume that the very next value on that line will be the desired
+        value of "NODTOT". The model will then reset "MNWMAX" to its absolute
+        value. The value of "ipakcb" will become the third value on that
+        line, etc.
     ipakcb : int
         is a flag and a unit number:
-            if ipakcb > 0, then it is the unit number to which MNW cell-by-cell flow terms
-                will be recorded whenever cell-by-cell budget data are written to a file
-                (as determined by the outputcontrol options of MODFLOW).
-            if ipakcb = 0, then MNW cell-by-cell flow terms will not be printed or recorded.
-            if ipakcb < 0, then well injection or withdrawal rates and water levels in the well
-                and its multiple cells will be printed in the main MODFLOW listing (output) file
-                whenever cell-by-cell budget data are written to a file
-                (as determined by the output control options of MODFLOW).
+            if ipakcb > 0, then it is the unit number to which MNW cell-by-cell
+            flow terms will be recorded whenever cell-by-cell budget data are
+            written to a file (as determined by the outputcontrol options of
+            MODFLOW).
+            if ipakcb = 0, then MNW cell-by-cell flow terms will not be printed
+                or recorded.
+            if ipakcb < 0, then well injection or withdrawal rates and water
+                levels in the well and its multiple cells will be printed in
+                the main MODFLOW listing (output) file whenever cell-by-cell
+                budget data are written to a file (as determined by the output
+                control options of MODFLOW).
     mnwprnt : integer
-        Flag controlling the level of detail of information about multi-node wells to be written to the
-        main MODFLOW listing (output) file. If MNWPRNT = 0, then only basic well information will be
-        printed in the main MODFLOW output file; increasing the value of MNWPRNT yields more information,
-        up to a maximum level of detail corresponding with MNWPRNT = 2.
-        (default is 0)
+        Flag controlling the level of detail of information about multi-node
+        wells to be written to the main MODFLOW listing (output) file.
+        If MNWPRNT = 0, then only basic well information will be printed in
+        the main MODFLOW output file; increasing the value of MNWPRNT yields
+        more information, up to a maximum level of detail corresponding
+        with MNWPRNT = 2. (default is 0)
     aux : list of strings
         (listed as "OPTION" in MNW2 input instructions)
-        is an optional list of character values in the style of "AUXILIARY abc" or "AUX abc"
-        where "abc" is the name of an auxiliary parameter to be read for each multi-node well
-        as part of dataset 4a. Up to 20 parameters can be specified,
-        each of which must be preceded by "AUXILIARY" or "AUX."
-        These parameters will not be used by the MNW2 Package,
-        but they will be available for use by other packages.
+        is an optional list of character values in the style of "AUXILIARY abc"
+        or "AUX abc" where "abc" is the name of an auxiliary parameter to be
+        read for each multi-node well as part of dataset 4a. Up to 20
+        parameters can be specified, each of which must be preceded by
+        "AUXILIARY" or "AUX." These parameters will not be used by the MNW2
+        Package, but they will be available for use by other packages.
         (default is None)
     node_data : numpy record array
-        master table describing multi-node wells in package. Same format as node_data tables for each
-        Mnw object. See Mnw class documentation for more information.
+        master table describing multi-node wells in package. Same format as
+        node_data tables for each Mnw object. See Mnw class documentation for
+        more information.
     mnw : list or dict of Mnw objects
-        Can be supplied instead of node_data and stress_period_data tables (in which case the tables
-        are constructed from the Mnw objects). Otherwise the a dict of Mnw objects (keyed by wellid)
-        is constructed from the tables.
+        Can be supplied instead of node_data and stress_period_data tables
+        (in which case the tables are constructed from the Mnw objects).
+        Otherwise the a dict of Mnw objects (keyed by wellid) is constructed
+        from the tables.
     stress_period_data : dict of numpy record arrays
-        master dictionary of record arrays (keyed by stress period) containing transient input
-        for multi-node wells. Format is the same as stress period data for individual Mnw objects,
-        except the 'per' column is replaced by 'wellid' (containing wellid for each MNW).
-        See Mnw class documentation for more information.
+        master dictionary of record arrays (keyed by stress period) containing
+        transient input for multi-node wells. Format is the same as stress
+        period data for individual Mnw objects, except the 'per' column is
+        replaced by 'wellid' (containing wellid for each MNW). See Mnw class
+        documentation for more information.
     itmp : list of ints
-        is an integer value for reusing or reading multi-node well data; it can change each stress period.
-        ITMP must be >= 0 for the first stress period of a simulation.
-        if ITMP > 0, then ITMP is the total number of active multi-node wells simulated during the stress period,
-            and only wells listed in dataset 4a will be active during the stress period. Characteristics of each well
-            are defined in datasets 2 and 4.
-        if ITMP = 0, then no multi-node wells are active for the stress period and the following dataset is skipped.
-        if ITMP < 0, then the same number of wells and well information will be reused from the
-        previous stress period and dataset 4 is skipped.
+        is an integer value for reusing or reading multi-node well data; it
+        can change each stress period. ITMP must be >= 0 for the first stress
+        period of a simulation.
+        if ITMP > 0, then ITMP is the total number of active multi-node wells
+            simulated during the stress period, and only wells listed in
+            dataset 4a will be active during the stress period. Characteristics
+            of each well are defined in datasets 2 and 4.
+        if ITMP = 0, then no multi-node wells are active for the stress period
+            and the following dataset is skipped.
+        if ITMP < 0, then the same number of wells and well information will
+            be reused from the previous stress period and dataset 4 is skipped.
     extension : string
         Filename extension (default is 'mnw2')
     unitnumber : int
@@ -808,7 +936,7 @@ class ModflowMnw2(Package):
         self.nper = 1 if self.nper == 0 else self.nper  # otherwise iterations from 0, nper won't run
         self.structured = self.parent.structured
 
-        # Dataset 0 -----------------------------------------------------------------------
+        # Dataset 0
         self.heading = '# {} package for '.format(self.name[0]) + \
                        ' {}, '.format(model.version_types[model.version]) + \
                        'generated by Flopy.'
@@ -818,7 +946,7 @@ class ModflowMnw2(Package):
         self.nodtot = nodtot  # user-specified maximum number of nodes
         self.ipakcb = ipakcb
         self.mnwprnt = int(mnwprnt)  # -verbosity flag
-        self.aux = aux  # -list of optional auxilary parameters
+        self.aux = aux  # -list of optional auxiliary parameters
 
         # Datasets 2-4 are contained in node_data and stress_period_data tables
         # and/or in Mnw objects
@@ -831,9 +959,11 @@ class ModflowMnw2(Package):
                      n in self.node_data.dtype.names]
             for n in names:
                 self.node_data[n] = node_data[
-                    n]  # rec array of Mnw properties by node
+                    n]  # recarray of Mnw properties by node
             self.nodtot = len(self.node_data)
-            self.node_data.sort(order=['wellid', 'k'])
+            self._sort_node_data()
+            # self.node_data.sort(order=['wellid', 'k'])
+
             # Python 3.5.0 produces a segmentation fault when trying to sort BR MNW wells
             # self.node_data.sort(order='wellid', axis=0)
         self.mnw = mnw  # dict or list of Mnw objects
@@ -869,7 +999,8 @@ class ModflowMnw2(Package):
             self.make_stress_period_data(self.mnw)
 
         if stress_period_data is not None:
-            if 'k' not in stress_period_data[list(stress_period_data.keys())[0]].dtype.names:
+            if 'k' not in stress_period_data[
+                list(stress_period_data.keys())[0]].dtype.names:
                 self._add_kij_to_stress_period_data()
 
         self.parent.add_package(self)
@@ -881,23 +1012,64 @@ class ModflowMnw2(Package):
                     self.mnw[wellid].__dict__[d][0]
                     for wellid in self.stress_period_data[per].wellid]
 
+    def _sort_node_data(self):
+
+        node_data = self.node_data
+        node_data_list = []
+        wells = sorted(np.unique(node_data['wellid']).tolist())
+        for wellid in wells:
+            nd = node_data[node_data['wellid'] == wellid]
+            nd = Mnw.sort_node_data(nd)
+            node_data_list.append(nd)
+        node_data = np.concatenate(node_data_list, axis=0)
+        self.node_data = node_data.view(np.recarray)
+
     @staticmethod
     def get_empty_node_data(maxnodes=0, aux_names=None, structured=True,
                             default_value=0):
-        """get an empty recarray that correponds to dtype
+        """
+        get an empty recarray that corresponds to dtype
 
         Parameters
         ----------
         maxnodes : int
-            Total number of nodes to be simulated
+            Total number of nodes to be simulated (default is 0)
+        aux_names : list
+            List of aux name strings (default is None)
+        structured : bool
+            Boolean indicating if a structured (True) or unstructured (False)
+            model (default is True).
+        default_value : float
+            Default value for float variables (default is 0).
+
+        Returns
+        -------
+        r : np.recarray
+            Recarray of default dtype of shape maxnode
         """
         dtype = ModflowMnw2.get_default_node_dtype(structured=structured)
         if aux_names is not None:
             dtype = Package.add_to_dtype(dtype, aux_names, np.float32)
-        return create_empty_recarray(maxnodes, dtype)
+        return create_empty_recarray(maxnodes, dtype,
+                                     default_value=default_value)
 
     @staticmethod
     def get_default_node_dtype(structured=True):
+        """
+        Get default dtype for node data
+
+        Parameters
+        ----------
+        structured : bool
+            Boolean indicating if a structured (True) or unstructured (False)
+            model (default is True).
+
+        Returns
+        -------
+        dtype : np.dtype
+            node data dtype
+
+        """
         if structured:
             return np.dtype([('k', np.int),
                              ('i', np.int),
@@ -933,19 +1105,55 @@ class ModflowMnw2(Package):
                              ('liftn', np.float32),
                              ('qn', np.float32)])
         else:
-            pass
+            msg = 'get_default_node_dtype: unstructured model not supported'
+            raise NotImplementedError(msg)
 
     @staticmethod
     def get_empty_stress_period_data(itmp=0, aux_names=None, structured=True,
                                      default_value=0):
-        # get an empty recarray that correponds to dtype
+        """
+        Get an empty stress period data recarray
+
+        Parameters
+        ----------
+        itmp : int
+            Number of entries in this stress period (default is 0).
+        aux_names : list
+            List of aux names (default is None).
+        structured : bool
+            Boolean indicating if a structured (True) or unstructured (False)
+            model (default is True).
+        default_value : float
+            Default value for float variables (default is 0).
+
+        Returns
+        -------
+        r : np.recarray
+            Recarray of default dtype of shape itmp
+
+        """
         dtype = ModflowMnw2.get_default_spd_dtype(structured=structured)
         if aux_names is not None:
             dtype = Package.add_to_dtype(dtype, aux_names, np.float32)
-        return create_empty_recarray(itmp, dtype)
+        return create_empty_recarray(itmp, dtype, default_value=default_value)
 
     @staticmethod
     def get_default_spd_dtype(structured=True):
+        """
+        Get default dtype for stress period data
+
+        Parameters
+        ----------
+        structured : bool
+            Boolean indicating if a structured (True) or unstructured (False)
+            model (default is True).
+
+        Returns
+        -------
+        dtype : np.dtype
+            node data dtype
+
+        """
         if structured:
             return np.dtype([('k', np.int),
                              ('i', np.int),
@@ -959,10 +1167,36 @@ class ModflowMnw2(Package):
                              ('qfrcmn', np.float32),
                              ('qfrcmx', np.float32)])
         else:
-            pass
+            msg = 'get_default_spd_dtype: unstructured model not supported'
+            raise NotImplementedError(msg)
 
     @staticmethod
     def load(f, model, nper=None, gwt=False, nsol=1, ext_unit_dict=None):
+        """
+
+        Parameters
+        ----------
+        f : filename or file handle
+            File to load.
+        model : model object
+            The model object (of type :class:`flopy.modflow.ModflowMnw2`) to
+            which this package will be added.
+        nper : int
+            Number of periods
+        gwt : bool
+        nsol : int
+        ext_unit_dict : dictionary, optional
+            If the arrays in the file are specified using EXTERNAL,
+            or older style array control records, then `f` should be a file
+            handle.  In this case ext_unit_dict is required, which can be
+            constructed using the function
+            :class:`flopy.utils.mfreadnam.parsenamefile`.
+
+
+        Returns
+        -------
+
+        """
 
         if model.verbose:
             sys.stdout.write('loading mnw2 package file...\n')
@@ -1011,8 +1245,6 @@ class ModflowMnw2(Package):
                     wellid, qdes, capmult, cprime, xyz = _parse_4a(next(f),
                                                                    mnw,
                                                                    gwt=gwt)
-                    if wellid == 'Mellen3':
-                        j = 2
                     hlim, qcut, qfrcmn, qfrcmx = 0, 0, 0, 0
                     if mnw[wellid].qlimit < 0:
                         hlim, qcut, qfrcmn, qfrcmx = _parse_4b(next(f))
@@ -1032,7 +1264,7 @@ class ModflowMnw2(Package):
             else:
                 # copy pumping rates from previous stress period
                 mnw[wellid].stress_period_data[per] = \
-                mnw[wellid].stress_period_data[per - 1]
+                    mnw[wellid].stress_period_data[per - 1]
             itmp.append(itmp_per)
         f.close()
 
@@ -1076,7 +1308,7 @@ class ModflowMnw2(Package):
 
         Returns
         -------
-        None
+        chk : check object
 
         Examples
         --------
@@ -1101,23 +1333,26 @@ class ModflowMnw2(Package):
         return chk
 
     def get_allnode_data(self):
-        """Get a version of the node_data array that has all MNW2 nodes listed explicitly.
-        For example, MNWs with open intervals encompassing multiple layers would have a row
-        entry for each layer. Ztop and zbotm values indicate the top and bottom elevations of the node
-        (these are the same as the layer top and bottom if the node fully penetrates that layer).
+        """
+        Get a version of the node_data array that has all MNW2 nodes listed
+        explicitly. For example, MNWs with open intervals encompassing
+        multiple layers would have a row entry for each layer. Ztop and zbotm
+        values indicate the top and bottom elevations of the node (these are
+        the same as the layer top and bottom if the node fully penetrates
+        that layer).
 
         Returns
         -------
         allnode_data : np.recarray
-            Numpy record array of same form as node_data, except each row represents only one node.
+            Numpy record array of same form as node_data, except each row
+            represents only one node.
+
         """
         from numpy.lib.recfunctions import stack_arrays
 
         nd = []
         for i in range(len(self.node_data)):
             r = self.node_data[i]
-            if r['wellid'] == '76264':
-                z=2
             if r['ztop'] - r['zbotm'] > 0:
                 startK = get_layer(self.parent.dis, r['i'], r['j'], r['ztop'])
                 endK = get_layer(self.parent.dis, r['i'], r['j'], r['zbotm'])
@@ -1130,21 +1365,29 @@ class ModflowMnw2(Package):
                         rk = r.copy()
                         rk['k'] = k
                         if k > startK:
-                            rk['ztop'] = self.parent.dis.botm[
-                                k - 1, rk['i'], rk['j']]
+                            loc = (k - 1, rk['i'], rk['j'])
+                            rk['ztop'] = self.parent.dis.botm[loc]
                         if k < endK:
-                            rk['zbotm'] = self.parent.dis.botm[
-                                k, rk['i'], rk['j']]
+                            loc = (k, rk['i'], rk['j'])
+                            rk['zbotm'] = self.parent.dis.botm[loc]
                         nd.append(rk)
             else:
                 nd.append(r)
         return stack_arrays(nd, usemask=False).view(np.recarray)
 
     def make_mnw_objects(self):
+        """
+        Make a Mnw object
+
+        Returns
+        -------
+        None
+
+        """
         node_data = self.node_data
         stress_period_data = self.stress_period_data
         self.mnw = {}
-        mnws = np.unique(node_data.wellid)
+        mnws = np.unique(node_data['wellid'])
         for wellid in mnws:
             nd = node_data[node_data.wellid == wellid]
             nnodes = Mnw.get_nnodes(nd)
@@ -1176,19 +1419,47 @@ class ModflowMnw2(Package):
                                    mnwpackage=self)
 
     def make_node_data(self, mnwobjs):
-        """Make node_data rec array from Mnw objects"""
+        """
+        Make node_data recarray from Mnw objects
+
+        Parameters
+        ----------
+        mnwobjs : Mnw object
+
+        Returns
+        -------
+        None
+
+        """
         if isinstance(mnwobjs, dict):
             mnwobjs = list(mnwobjs.values())
         elif isinstance(mnwobjs, Mnw):
             mnwobjs = [mnwobjs]
-        node_data = ModflowMnw2.get_empty_node_data(0)
-        mnwobj_node_data = [mnwobj.node_data for mnwobj in mnwobjs]
-        node_data = np.append(node_data, mnwobj_node_data).view(np.recarray)
-        # node_data.sort(order='wellid')
+
+        mnwobj_node_data = []
+        for mnwobj in mnwobjs:
+            for rec in mnwobj.node_data:
+                mnwobj_node_data.append(rec)
+        node_data = ModflowMnw2.get_empty_node_data(len(mnwobj_node_data))
+
+        for ix, node in enumerate(mnwobj_node_data):
+            node_data[ix] = node
+
         self.node_data = node_data
 
     def make_stress_period_data(self, mnwobjs):
-        """make stress_period_data rec array from Mnw objects"""
+        """
+        Make stress_period_data recarray from Mnw objects
+
+        Parameters
+        ----------
+        mnwobjs : Mnw object
+
+        Returns
+        -------
+        None
+
+        """
         if isinstance(mnwobjs, dict):
             mnwobjs = list(mnwobjs.values())
         elif isinstance(mnwobjs, Mnw):
@@ -1210,7 +1481,7 @@ class ModflowMnw2(Package):
                         stress_period_data[per]['wellid'][i - 1] = mnw.wellid
                         for n in names:
                             stress_period_data[per][n][i - 1] = \
-                            mnw.stress_period_data[n][per]
+                                mnw.stress_period_data[n][per]
                 stress_period_data[per].sort(order='wellid')
                 if i < itmp:
                     raise ItmpError(itmp, i)
@@ -1223,6 +1494,20 @@ class ModflowMnw2(Package):
                                          dtype=stress_period_data[0].dtype)
 
     def export(self, f, **kwargs):
+        """
+        Export MNW2 data
+
+        Parameters
+        ----------
+        f : file
+        kwargs
+
+        Returns
+        -------
+        e : export object
+
+
+        """
         # A better strategy would be to build a single 4-D MfList
         # (currently the stress period data array has everything in layer 0)
         self.node_data_MfList = MfList(self, self.get_allnode_data(),
@@ -1239,7 +1524,7 @@ class ModflowMnw2(Package):
                     for col in todrop:
                         inds = self.stress_period_data[per].wellid == wellid
                         self.stress_period_data[per][col][inds] = \
-                        self.node_data[wellnd][col]
+                            self.node_data[wellnd][col]
         self.node_data_MfList = self.node_data_MfList.drop(todrop)
         '''
         todrop = {'qfrcmx', 'qfrcmn'}
@@ -1258,6 +1543,19 @@ class ModflowMnw2(Package):
         return super(ModflowMnw2, self).export(f, **kwargs)
 
     def _write_1(self, f_mnw):
+        """
+
+        Parameters
+        ----------
+        f_mnw : file object
+            File object for MNW2 input file
+
+
+        Returns
+        -------
+        None
+
+        """
         f_mnw.write('{:.0f} '.format(self.mnwmax))
         if self.mnwmax < 0:
             f_mnw.write('{:.0f} '.format(self.nodtot))
@@ -1271,6 +1569,12 @@ class ModflowMnw2(Package):
                    use_tables=True):
         """
         Write the package file.
+
+        Parameters
+        ----------
+        filename : str
+        float_format
+        use_tables
 
         Returns
         -------
@@ -1331,7 +1635,7 @@ class ModflowMnw2(Package):
                     f_mnw.write('\n')
                     if self.mnw[wellid].qlimit < 0:
                         hlim, qcut = \
-                        self.stress_period_data[per][['hlim', 'qcut']][n]
+                            self.stress_period_data[per][['hlim', 'qcut']][n]
                         fmt = float_format + ' {:.0f}'
                         f_mnw.write(fmt.format(hlim, qcut))
                         if qcut != 0:
@@ -1351,6 +1655,16 @@ class ModflowMnw2(Package):
 
 
 def _parse_1(line):
+    """
+
+    Parameters
+    ----------
+    line
+
+    Returns
+    -------
+
+    """
     line = line_parse(line)
     mnwmax = pop_item(line, int)
     nodtot = None
@@ -1366,6 +1680,16 @@ def _parse_1(line):
 
 
 def _parse_2(f):
+    """
+
+    Parameters
+    ----------
+    f
+
+    Returns
+    -------
+
+    """
     # dataset 2a
     line = line_parse(next(f))
     if len(line) > 2:
@@ -1386,14 +1710,15 @@ def _parse_2(f):
     names = ['ztop', 'zbotm', 'k', 'i', 'j', 'rw', 'rskin', 'kskin', 'B', 'C',
              'P', 'cwc', 'pp']
     d2d = {n: [] for n in names}  # dataset 2d; dict of lists for each variable
+    # set default values of 0 for all 2c items
+    d2dw = dict(
+        zip(['rw', 'rskin', 'kskin', 'B', 'C', 'P', 'cwc'], [0] * 7))
     if losstype.lower() != 'none':
-        # set default values of 0 for all 2c items
-        d2dw = dict(
-            zip(['rw', 'rskin', 'kskin', 'B', 'C', 'P', 'cwc'], [0] * 7))
+        # update d2dw items
         d2dw.update(_parse_2c(next(f), losstype))  # dict of values for well
         for k, v in d2dw.items():
             if v > 0:
-                d2d[k] = v
+                d2d[k].append(v)
     # dataset 2d
     pp = 1  # partial penetration flag
     for i in range(np.abs(nnodes)):
@@ -1413,9 +1738,9 @@ def _parse_2(f):
                          cwc=d2dw['cwc'])
         # append only the returned items
         for k, v in d2di.items():
-            d2d[k] += v
+            d2d[k].append(v)
         if ppflag > 0 and nnodes > 0:
-            d2d['pp'] += pop_item(line, float)
+            d2d['pp'].append(pop_item(line, float))
 
     # dataset 2e
     pumplay = None
@@ -1488,6 +1813,24 @@ def _parse_2(f):
 
 def _parse_2c(line, losstype, rw=-1, rskin=-1, kskin=-1, B=-1, C=-1, P=-1,
               cwc=-1):
+    """
+
+    Parameters
+    ----------
+    line
+    losstype
+    rw
+    rskin
+    kskin
+    B
+    C
+    P
+    cwc
+
+    Returns
+    -------
+
+    """
     if not isinstance(line, list):
         line = line_parse(line)
     nd = {}  # dict of dataset 2c/2d items
@@ -1513,6 +1856,18 @@ def _parse_2c(line, losstype, rw=-1, rskin=-1, kskin=-1, B=-1, C=-1, P=-1,
 
 
 def _parse_4a(line, mnw, gwt=False):
+    """
+
+    Parameters
+    ----------
+    line
+    mnw
+    gwt
+
+    Returns
+    -------
+
+    """
     capmult = 0
     cprime = 0
     line = line_parse(line)
@@ -1528,6 +1883,16 @@ def _parse_4a(line, mnw, gwt=False):
 
 
 def _parse_4b(line):
+    """
+
+    Parameters
+    ----------
+    line
+
+    Returns
+    -------
+
+    """
     qfrcmn = 0
     qfrcmx = 0
     line = line_parse(line)
@@ -1545,7 +1910,8 @@ class ItmpError(Exception):
         self.nactivewells = nactivewells
 
     def __str__(self):
-        return (
-        '\n\nItmp value of {} is positive but does not equal the number of active wells specified ({}). '
-        'See Mnw2 package documentation for details.'.format(self.itmp,
-                                                             self.nactivewells))
+        s = '\n\nItmp value of {} '.format(self.itmp) + \
+            'is positive but does not equal the number of active wells ' + \
+            'specified ({}). '.format(self.nactivewells) + \
+            'See MNW2 package documentation for details.'
+        return s

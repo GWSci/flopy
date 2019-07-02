@@ -68,7 +68,12 @@ class ModflowGwfnpf(mfpackage.MFPackage):
         * save_specific_discharge (boolean) keyword to indicate that x, y, and
           z components of specific discharge will be calculated at cell centers
           and written to the cell-by-cell flow file, which is specified with
-          "BUDGET SAVE FILE" in Output Control.
+          "BUDGET SAVE FILE" in Output Control. If this option is activated,
+          then additional information may be required in the discretization
+          packages and the GWF Exchange package (if GWF models are coupled).
+          Specifically, ANGLDEGX must be specified in the CONNECTIONDATA block
+          of the DISU Package; ANGLDEGX must also be specified for the GWF
+          Exchange as an auxiliary variable.
     icelltype : [integer]
         * icelltype (integer) flag for each cell that specifies how saturated
           thickness is treated. 0 means saturated thickness is held constant;
@@ -158,7 +163,7 @@ class ModflowGwfnpf(mfpackage.MFPackage):
           "REWET" is specified in the OPTIONS block. If "REWET" is not
           specified in the options block, then WETDRY can be entered, and
           memory will be allocated for it, even though it is not used.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -168,105 +173,112 @@ class ModflowGwfnpf(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    rewet_record = ListTemplateGenerator(('gwf6', 'npf', 'options', 
+    rewet_record = ListTemplateGenerator(('gwf6', 'npf', 'options',
                                           'rewet_record'))
-    icelltype = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 
+    icelltype = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata',
                                         'icelltype'))
     k = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 'k'))
     k22 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 'k22'))
     k33 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 'k33'))
-    angle1 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 
+    angle1 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata',
                                      'angle1'))
-    angle2 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 
+    angle2 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata',
                                      'angle2'))
-    angle3 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 
+    angle3 = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata',
                                      'angle3'))
-    wetdry = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata', 
+    wetdry = ArrayTemplateGenerator(('gwf6', 'npf', 'griddata',
                                      'wetdry'))
     package_abbr = "gwfnpf"
-    package_type = "npf"
+    _package_type = "npf"
     dfn_file_name = "gwf-npf.dfn"
 
-    dfn = [["block options", "name save_flows", "type keyword", 
+    dfn = [["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name alternative_cell_averaging", 
-            "type string", "valid logarithmic amt-lmk amt-hmk", 
+           ["block options", "name alternative_cell_averaging",
+            "type string", "valid logarithmic amt-lmk amt-hmk",
             "reader urword", "optional true"],
-           ["block options", "name thickstrt", "type keyword", 
+           ["block options", "name thickstrt", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name cvoptions", 
-            "type record variablecv dewatered", "reader urword", 
+           ["block options", "name cvoptions",
+            "type record variablecv dewatered", "reader urword",
             "optional true"],
-           ["block options", "name variablecv", "in_record true", 
+           ["block options", "name variablecv", "in_record true",
             "type keyword", "reader urword"],
-           ["block options", "name dewatered", "in_record true", 
+           ["block options", "name dewatered", "in_record true",
             "type keyword", "reader urword", "optional true"],
-           ["block options", "name perched", "type keyword", 
+           ["block options", "name perched", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name rewet_record", 
-            "type record rewet wetfct iwetit ihdwet", "reader urword", 
+           ["block options", "name rewet_record",
+            "type record rewet wetfct iwetit ihdwet", "reader urword",
             "optional true"],
-           ["block options", "name rewet", "type keyword", "in_record true", 
+           ["block options", "name rewet", "type keyword", "in_record true",
             "reader urword", "optional false"],
-           ["block options", "name wetfct", "type double", "in_record true", 
-            "reader urword", "optional false"],
-           ["block options", "name iwetit", "type integer", 
+           ["block options", "name wetfct", "type double precision",
             "in_record true", "reader urword", "optional false"],
-           ["block options", "name ihdwet", "type integer", 
+           ["block options", "name iwetit", "type integer",
             "in_record true", "reader urword", "optional false"],
-           ["block options", "name xt3doptions", "type record xt3d rhs", 
+           ["block options", "name ihdwet", "type integer",
+            "in_record true", "reader urword", "optional false"],
+           ["block options", "name xt3doptions", "type record xt3d rhs",
             "reader urword", "optional true"],
-           ["block options", "name xt3d", "in_record true", "type keyword", 
+           ["block options", "name xt3d", "in_record true", "type keyword",
             "reader urword"],
-           ["block options", "name rhs", "in_record true", "type keyword", 
+           ["block options", "name rhs", "in_record true", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_specific_discharge", "type keyword", 
+           ["block options", "name save_specific_discharge", "type keyword",
             "reader urword", "optional true"],
-           ["block griddata", "name icelltype", "type integer", 
-            "shape (nodes)", "valid", "reader readarray", "optional", 
-            "default_value 0"],
-           ["block griddata", "name k", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional", 
-            "default_value 1.0"],
-           ["block griddata", "name k22", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"],
-           ["block griddata", "name k33", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"],
-           ["block griddata", "name angle1", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"],
-           ["block griddata", "name angle2", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"],
-           ["block griddata", "name angle3", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"],
-           ["block griddata", "name wetdry", "type double precision", 
-            "shape (nodes)", "valid", "reader readarray", "optional true"]]
+           ["block griddata", "name icelltype", "type integer",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional", "default_value 0"],
+           ["block griddata", "name k", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional", "default_value 1.0"],
+           ["block griddata", "name k22", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"],
+           ["block griddata", "name k33", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"],
+           ["block griddata", "name angle1", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"],
+           ["block griddata", "name angle2", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"],
+           ["block griddata", "name angle3", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"],
+           ["block griddata", "name wetdry", "type double precision",
+            "shape (nodes)", "valid", "reader readarray", "layered true",
+            "optional true"]]
 
     def __init__(self, model, loading_package=False, save_flows=None,
                  alternative_cell_averaging=None, thickstrt=None,
                  cvoptions=None, perched=None, rewet_record=None,
                  xt3doptions=None, save_specific_discharge=None, icelltype=0,
                  k=1.0, k22=None, k33=None, angle1=None, angle2=None,
-                 angle3=None, wetdry=None, fname=None, pname=None,
+                 angle3=None, wetdry=None, filename=None, pname=None,
                  parent_file=None):
-        super(ModflowGwfnpf, self).__init__(model, "npf", fname, pname,
-                                            loading_package, parent_file)        
+        super(ModflowGwfnpf, self).__init__(model, "npf", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
         self.alternative_cell_averaging = self.build_mfdata(
-            "alternative_cell_averaging",  alternative_cell_averaging)
-        self.thickstrt = self.build_mfdata("thickstrt",  thickstrt)
-        self.cvoptions = self.build_mfdata("cvoptions",  cvoptions)
-        self.perched = self.build_mfdata("perched",  perched)
-        self.rewet_record = self.build_mfdata("rewet_record",  rewet_record)
-        self.xt3doptions = self.build_mfdata("xt3doptions",  xt3doptions)
+            "alternative_cell_averaging", alternative_cell_averaging)
+        self.thickstrt = self.build_mfdata("thickstrt", thickstrt)
+        self.cvoptions = self.build_mfdata("cvoptions", cvoptions)
+        self.perched = self.build_mfdata("perched", perched)
+        self.rewet_record = self.build_mfdata("rewet_record", rewet_record)
+        self.xt3doptions = self.build_mfdata("xt3doptions", xt3doptions)
         self.save_specific_discharge = self.build_mfdata(
-            "save_specific_discharge",  save_specific_discharge)
-        self.icelltype = self.build_mfdata("icelltype",  icelltype)
-        self.k = self.build_mfdata("k",  k)
-        self.k22 = self.build_mfdata("k22",  k22)
-        self.k33 = self.build_mfdata("k33",  k33)
-        self.angle1 = self.build_mfdata("angle1",  angle1)
-        self.angle2 = self.build_mfdata("angle2",  angle2)
-        self.angle3 = self.build_mfdata("angle3",  angle3)
-        self.wetdry = self.build_mfdata("wetdry",  wetdry)
+            "save_specific_discharge", save_specific_discharge)
+        self.icelltype = self.build_mfdata("icelltype", icelltype)
+        self.k = self.build_mfdata("k", k)
+        self.k22 = self.build_mfdata("k22", k22)
+        self.k33 = self.build_mfdata("k33", k33)
+        self.angle1 = self.build_mfdata("angle1", angle1)
+        self.angle2 = self.build_mfdata("angle2", angle2)
+        self.angle3 = self.build_mfdata("angle3", angle3)
+        self.wetdry = self.build_mfdata("wetdry", wetdry)
+        self._init_complete = True

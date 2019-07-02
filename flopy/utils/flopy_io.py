@@ -4,18 +4,38 @@ Module for input/output utilities
 import sys
 import numpy as np
 
+try:
+    import pandas as pd
+except:
+    pd = False
+
+
 def _fmt_string(array, float_format='{}'):
-    """makes a formatting string for a rec-array; given a desired float_format."""
+    """
+    makes a formatting string for a rec-array;
+    given a desired float_format.
+
+    Parameters
+    ----------
+    array : np.recarray
+    float_format : str
+        formatter for floating point variable
+
+    Returns
+    -------
+    fmt_string : str
+        formatting string for writing output
+    """
     fmt_string = ''
     for field in array.dtype.descr:
         vtype = field[1][1].lower()
-        if (vtype == 'i'):
+        if vtype == 'i':
             fmt_string += '{:.0f} '
-        elif (vtype == 'f'):
+        elif vtype == 'f':
             fmt_string += '{} '.format(float_format)
-        elif (vtype == 'o'):
+        elif vtype == 'o':
             fmt_string += '{} '
-        elif (vtype == 's'):
+        elif vtype == 's':
             raise Exception("MfList error: '\str\' type found it dtype." + \
                             " This gives unpredictable results when " + \
                             "recarray to file - change to \'object\' type")
@@ -24,17 +44,26 @@ def _fmt_string(array, float_format='{}'):
                             "in dtype:" + vtype)
     return fmt_string
 
-def _pop_item(line, dtype=str):
-    if len(line) > 0:
-        if dtype == str:
-            return line.pop(0)
-        elif dtype == float:
-            return float(line.pop(0))
-        elif dtype == int:
-            # handle strings like this:
-            # '-10.'
-            return int(float(line.pop(0)))
-    return 0
+
+def line_strip(line):
+    """
+    Remove comments and replace commas from input text
+    for a free formatted modflow input file
+
+    Parameters
+    ----------
+        line : str
+            a line of text from a modflow input file
+
+    Returns
+    -------
+        str : line with comments removed and commas replaced
+    """
+    for comment_flag in [';', '#', '!!']:
+        line = line.split(comment_flag)[0]
+    line = line.strip()
+    return line.replace(',', ' ')
+
 
 def line_parse(line):
     """
@@ -42,10 +71,9 @@ def line_parse(line):
     case where a free formatted MODFLOW input file may have commas in
     it.
     """
-    for comment_flag in [';', '#']:
-        line = line.split(comment_flag)[0]
-    line = line.replace(',', ' ')
-    return line.strip().split()
+    line = line_strip(line)
+    return line.split()
+
 
 def pop_item(line, dtype=str):
     if len(line) > 0:
@@ -57,17 +85,7 @@ def pop_item(line, dtype=str):
             # handle strings like this:
             # '-10.'
             return int(float(line.pop(0)))
-    return 0
-
-def read_nwt_options(f):
-    """convert options codeblock to single line."""
-    options = []
-    while True:
-        options += line_parse(f.readline().lower())
-        if 'end' in options:
-            return ' '.join(options[:-1])
-
-
+    return dtype(0)
 
 
 def write_fixed_var(v, length=10, ipos=None, free=False, comment=None):
@@ -95,7 +113,7 @@ def write_fixed_var(v, length=10, ipos=None, free=False, comment=None):
 
     """
     if isinstance(v, np.ndarray):
-        v = v.aslist()
+        v = v.tolist()
     elif isinstance(v, int) or isinstance(v, float) or isinstance(v, bool):
         v = [v]
     ncol = len(v)
@@ -106,7 +124,7 @@ def write_fixed_var(v, length=10, ipos=None, free=False, comment=None):
             ipos.append(length)
     else:
         if isinstance(ipos, np.ndarray):
-            ipos = ipos.flatten().aslist()
+            ipos = ipos.flatten().tolist()
         elif isinstance(ipos, int):
             ipos = [ipos]
         if len(ipos) < ncol:
@@ -125,6 +143,7 @@ def write_fixed_var(v, length=10, ipos=None, free=False, comment=None):
         out += '  # {}'.format(comment)
     out += '\n'
     return out
+
 
 def read_fixed_var(line, ncol=1, length=10, ipos=None, free=False):
     """
@@ -160,7 +179,7 @@ def read_fixed_var(line, ncol=1, length=10, ipos=None, free=False):
                 ipos.append(length)
         else:
             if isinstance(ipos, np.ndarray):
-                ipos = ipos.flatten().aslist()
+                ipos = ipos.flatten().tolist()
             elif isinstance(ipos, int):
                 ipos = [ipos]
             ncol = len(ipos)
@@ -180,7 +199,8 @@ def read_fixed_var(line, ncol=1, length=10, ipos=None, free=False):
             istart = istop
     return out
 
-def flux_to_wel(cbc_file,text,precision="single",model=None,verbose=False):
+
+def flux_to_wel(cbc_file, text, precision="single", model=None, verbose=False):
     """
     Convert flux in a binary cell budget file to a wel instance
 
@@ -201,30 +221,28 @@ def flux_to_wel(cbc_file,text,precision="single",model=None,verbose=False):
     from . import CellBudgetFile as CBF
     from .util_list import MfList
     from ..modflow import Modflow, ModflowWel
-    cbf = CBF(cbc_file,precision=precision,verbose=verbose)
+    cbf = CBF(cbc_file, precision=precision, verbose=verbose)
 
     # create a empty numpy array of shape (time,layer,row,col)
-    m4d = np.zeros((cbf.nper,cbf.nlay,cbf.nrow,cbf.ncol),dtype=np.float32)
+    m4d = np.zeros((cbf.nper, cbf.nlay, cbf.nrow, cbf.ncol), dtype=np.float32)
     m4d[:] = np.NaN
 
     # process the records in the cell budget file
     iper = -1
     for kstpkper in cbf.kstpkper:
 
-        kstpkper = (kstpkper[0]-1,kstpkper[1]-1)
+        kstpkper = (kstpkper[0] - 1, kstpkper[1] - 1)
         kper = kstpkper[1]
-        #if we haven't visited this kper yet
+        # if we haven't visited this kper yet
         if kper != iper:
-            arr = cbf.get_data(kstpkper=kstpkper,text=text,full3D=True)
+            arr = cbf.get_data(kstpkper=kstpkper, text=text, full3D=True)
             if len(arr) > 0:
                 arr = arr[0]
-                print(arr.max(),arr.min(),arr.sum())
+                print(arr.max(), arr.min(), arr.sum())
                 # masked where zero
-                arr[np.where(arr==0.0)] = np.NaN
-                m4d[iper+1] = arr
+                arr[np.where(arr == 0.0)] = np.NaN
+                m4d[iper + 1] = arr
             iper += 1
-
-
 
     # model wasn't passed, then create a generic model
     if model is None:
@@ -235,15 +253,18 @@ def flux_to_wel(cbc_file,text,precision="single",model=None,verbose=False):
         ModflowWel(model)
 
     # get the stress_period_data dict {kper:np recarray}
-    sp_data = MfList.from_4d(model,"WEL",{"flux":m4d})
+    sp_data = MfList.from_4d(model, "WEL", {"flux": m4d})
 
-    wel = ModflowWel(model,stress_period_data=sp_data)
+    wel = ModflowWel(model, stress_period_data=sp_data)
     return wel
 
-def loadtxt(file, delimiter=' ', dtype=None, skiprows=0, use_pandas=True, **kwargs):
-    """Use pandas if it is available to load a text file
-    (significantly faster than n.loadtxt or genfromtxt;
-    see http://stackoverflow.com/questions/18259393/numpy-loading-csv-too-slow-compared-to-matlab)
+
+def loadtxt(file, delimiter=' ', dtype=None, skiprows=0, use_pandas=True,
+            **kwargs):
+    """
+    Use pandas if it is available to load a text file
+    (significantly faster than n.loadtxt or genfromtxt see
+    http://stackoverflow.com/questions/18259393/numpy-loading-csv-too-slow-compared-to-matlab)
 
     Parameters
     ----------
@@ -265,24 +286,27 @@ def loadtxt(file, delimiter=' ', dtype=None, skiprows=0, use_pandas=True, **kwar
     ra : np.recarray
         Numpy record array of file contents.
     """
-    try:
-        if use_pandas:
-            import pandas as pd
+    # test if pandas should be used, if available
+    if use_pandas:
+        if pd:
             if delimiter.isspace():
                 kwargs['delim_whitespace'] = True
             if isinstance(dtype, np.dtype) and 'names' not in kwargs:
                 kwargs['names'] = dtype.names
-    except:
-        pd = False
 
+    # if use_pandas and pd then use pandas
     if use_pandas and pd:
         df = pd.read_csv(file, dtype=dtype, skiprows=skiprows, **kwargs)
         return df.to_records(index=False)
+    # default use of numpy
     else:
         return np.loadtxt(file, dtype=dtype, skiprows=skiprows, **kwargs)
 
+
 def get_url_text(url, error_msg=None):
-    """Get text from a url, using either python 3 or 2."""
+    """
+    Get text from a url, using either python 3 or 2.
+    """
     try:
         # For Python 3.0 and later
         from urllib.request import urlopen

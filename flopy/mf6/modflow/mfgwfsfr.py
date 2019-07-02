@@ -1,7 +1,7 @@
 # DO NOT MODIFY THIS FILE DIRECTLY.  THIS FILE MUST BE CREATED BY
 # mf6/utils/createpackages.py
 from .. import mfpackage
-from ..data.mfdatautil import ListTemplateGenerator, ArrayTemplateGenerator
+from ..data.mfdatautil import ListTemplateGenerator
 
 
 class ModflowGwfsfr(mfpackage.MFPackage):
@@ -58,24 +58,23 @@ class ModflowGwfsfr(mfpackage.MFPackage):
     budget_filerecord : [budgetfile]
         * budgetfile (string) name of the binary output file to write budget
           information.
-    ts_filerecord : [ts6_filename]
-        * ts6_filename (string) defines a time-series file defining time series
-          that can be used to assign time-varying values. See the "Time-
-          Variable Input" section for instructions on using the time-series
-          capability.
-    obs_filerecord : [obs6_filename]
-        * obs6_filename (string) name of input file to define observations for
-          the SFR package. See the "Observation utility" section for
-          instructions for preparing observation input files. Table
-          reftable:obstype lists observation type(s) supported by the SFR
-          package.
+    timeseries : {varname:data} or timeseries data
+        * Contains data for the ts package. Data can be stored in a dictionary
+          containing data for the ts package with variable names as keys and
+          package data as values. Data just for the timeseries variable is also
+          acceptable. See ts package documentation for more information.
+    observations : {varname:data} or continuous data
+        * Contains data for the obs package. Data can be stored in a dictionary
+          containing data for the obs package with variable names as keys and
+          package data as values. Data just for the observations variable is
+          also acceptable. See obs package documentation for more information.
     mover : boolean
         * mover (boolean) keyword to indicate that this instance of the SFR
           Package can be used with the Water Mover (MVR) Package. When the
           MOVER option is specified, additional memory is allocated within the
           package to store the available, provided, and received water.
-    maximum_iterations : double
-        * maximum_iterations (double) value that defines an maximum number of
+    maximum_iterations : integer
+        * maximum_iterations (integer) value that defines the maximum number of
           Streamflow Routing Newton-Raphson iterations allowed for a reach. By
           default, MAXSFRIT is equal to 100.
     maximum_depth_change : double
@@ -218,7 +217,7 @@ class ModflowGwfsfr(mfpackage.MFPackage):
                   In cases where the simulated leakage calculated using the
                   specified stage exceeds the sum of inflows to the reach, the
                   stage is set to the top of the reach and leakage is set equal
-                  to the sum of inflows. Upstream factions should be changed
+                  to the sum of inflows. Upstream fractions should be changed
                   using the UPSTREAM_FRACTION SFRSETTING if the status for one
                   or more reaches is changed to ACTIVE or INACTIVE. For
                   example, if one of two downstream connections for a reach is
@@ -267,16 +266,26 @@ class ModflowGwfsfr(mfpackage.MFPackage):
                   evaporation rate should be provided. If the Options block
                   includes a TIMESERIESFILE entry (see the "Time-Variable
                   Input" section), values can be obtained from a time series by
-                  entering the time-series name in place of a numeric value. By
-                  default, evaporation rates are zero for each reach.
+                  entering the time-series name in place of a numeric value. If
+                  the volumetric evaporation rate for a reach exceeds the
+                  sources of water to the reach (upstream and specified
+                  inflows, rainfall, and runoff but excluding groundwater
+                  leakage into the reach) the volumetric evaporation rate is
+                  limited to the sources of water to the reach. By default,
+                  evaporation rates are zero for each reach.
             runoff : [string]
                 * runoff (string) real or character value that defines the
                   volumetric rate of diffuse overland runoff that enters the
                   streamflow routing reach. If the Options block includes a
                   TIMESERIESFILE entry (see the "Time-Variable Input" section),
                   values can be obtained from a time series by entering the
-                  time-series name in place of a numeric value. By default,
-                  runoff rates are zero for each reach.
+                  time-series name in place of a numeric value. If the
+                  volumetric runoff rate for a reach is negative and exceeds
+                  inflows to the reach (upstream and specified inflows, and
+                  rainfall but excluding groundwater leakage into the reach)
+                  the volumetric runoff rate is limited to inflows to the reach
+                  and the volumetric evaporation rate for the reach is set to
+                  zero. By default, runoff rates are zero for each reach.
             diversionrecord : [idv, divrate]
                 * idv (integer) diversion number.
                 * divrate (double) real or character value that defines the
@@ -302,7 +311,7 @@ class ModflowGwfsfr(mfpackage.MFPackage):
                   Variable Input" section), values can be obtained from a time
                   series by entering the time-series name in place of a numeric
                   value.
-    fname : String
+    filename : String
         File name for this package.
     pname : String
         Package name for this package.
@@ -312,246 +321,256 @@ class ModflowGwfsfr(mfpackage.MFPackage):
         a mfgwflak package parent_file.
 
     """
-    auxiliary = ListTemplateGenerator(('gwf6', 'sfr', 'options', 
+    auxiliary = ListTemplateGenerator(('gwf6', 'sfr', 'options',
                                        'auxiliary'))
-    stage_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options', 
+    stage_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options',
                                               'stage_filerecord'))
-    budget_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options', 
+    budget_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options',
                                                'budget_filerecord'))
-    ts_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options', 
+    ts_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options',
                                            'ts_filerecord'))
-    obs_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options', 
+    obs_filerecord = ListTemplateGenerator(('gwf6', 'sfr', 'options',
                                             'obs_filerecord'))
-    packagedata = ListTemplateGenerator(('gwf6', 'sfr', 'packagedata', 
+    packagedata = ListTemplateGenerator(('gwf6', 'sfr', 'packagedata',
                                          'packagedata'))
-    connectiondata = ListTemplateGenerator(('gwf6', 'sfr', 
-                                            'connectiondata', 
+    connectiondata = ListTemplateGenerator(('gwf6', 'sfr',
+                                            'connectiondata',
                                             'connectiondata'))
-    diversions = ListTemplateGenerator(('gwf6', 'sfr', 'diversions', 
+    diversions = ListTemplateGenerator(('gwf6', 'sfr', 'diversions',
                                         'diversions'))
-    perioddata = ListTemplateGenerator(('gwf6', 'sfr', 'period', 
+    perioddata = ListTemplateGenerator(('gwf6', 'sfr', 'period',
                                         'perioddata'))
     package_abbr = "gwfsfr"
-    package_type = "sfr"
+    _package_type = "sfr"
     dfn_file_name = "gwf-sfr.dfn"
 
-    dfn = [["block options", "name auxiliary", "type string", 
+    dfn = [["block options", "name auxiliary", "type string",
             "shape (naux)", "reader urword", "optional true"],
-           ["block options", "name boundnames", "type keyword", "shape", 
+           ["block options", "name boundnames", "type keyword", "shape",
             "reader urword", "optional true"],
-           ["block options", "name print_input", "type keyword", 
+           ["block options", "name print_input", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_stage", "type keyword", 
+           ["block options", "name print_stage", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name print_flows", "type keyword", 
+           ["block options", "name print_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name save_flows", "type keyword", 
+           ["block options", "name save_flows", "type keyword",
             "reader urword", "optional true"],
-           ["block options", "name stage_filerecord", 
-            "type record stage fileout stagefile", "shape", "reader urword", 
+           ["block options", "name stage_filerecord",
+            "type record stage fileout stagefile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name stage", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name stage", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name stagefile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name stagefile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name budget_filerecord", 
-            "type record budget fileout budgetfile", "shape", "reader urword", 
+           ["block options", "name budget_filerecord",
+            "type record budget fileout budgetfile", "shape", "reader urword",
             "tagged true", "optional true"],
-           ["block options", "name budget", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name budget", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name fileout", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name fileout", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name budgetfile", "type string", 
-            "preserve_case true", "shape", "in_record true", "reader urword", 
+           ["block options", "name budgetfile", "type string",
+            "preserve_case true", "shape", "in_record true", "reader urword",
             "tagged false", "optional false"],
-           ["block options", "name ts_filerecord", 
-            "type record ts6 filein ts6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name ts6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name ts_filerecord",
+            "type record ts6 filein ts6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package ts",
+            "construct_data timeseries", "parameter_name timeseries"],
+           ["block options", "name ts6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name filein", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name filein", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name ts6_filename", "type string", 
-            "preserve_case true", "in_record true", "reader urword", 
+           ["block options", "name ts6_filename", "type string",
+            "preserve_case true", "in_record true", "reader urword",
             "optional false", "tagged false"],
-           ["block options", "name obs_filerecord", 
-            "type record obs6 filein obs6_filename", "shape", "reader urword", 
-            "tagged true", "optional true"],
-           ["block options", "name obs6", "type keyword", "shape", 
-            "in_record true", "reader urword", "tagged true", 
+           ["block options", "name obs_filerecord",
+            "type record obs6 filein obs6_filename", "shape", "reader urword",
+            "tagged true", "optional true", "construct_package obs",
+            "construct_data continuous", "parameter_name observations"],
+           ["block options", "name obs6", "type keyword", "shape",
+            "in_record true", "reader urword", "tagged true",
             "optional false"],
-           ["block options", "name obs6_filename", "type string", 
-            "preserve_case true", "in_record true", "tagged false", 
+           ["block options", "name obs6_filename", "type string",
+            "preserve_case true", "in_record true", "tagged false",
             "reader urword", "optional false"],
-           ["block options", "name mover", "type keyword", "tagged true", 
+           ["block options", "name mover", "type keyword", "tagged true",
             "reader urword", "optional true"],
-           ["block options", "name maximum_iterations", 
+           ["block options", "name maximum_iterations", "type integer",
+            "reader urword", "optional true"],
+           ["block options", "name maximum_depth_change",
             "type double precision", "reader urword", "optional true"],
-           ["block options", "name maximum_depth_change", 
+           ["block options", "name unit_conversion",
             "type double precision", "reader urword", "optional true"],
-           ["block options", "name unit_conversion", 
-            "type double precision", "reader urword", "optional true"],
-           ["block dimensions", "name nreaches", "type integer", 
+           ["block dimensions", "name nreaches", "type integer",
             "reader urword", "optional false"],
-           ["block packagedata", "name packagedata", 
-            "type recarray rno cellid rlen rwid rgrd rtp rbth rhk man ncon " 
-            "ustrf ndv aux boundname", 
+           ["block packagedata", "name packagedata",
+            "type recarray rno cellid rlen rwid rgrd rtp rbth rhk man ncon "
+            "ustrf ndv aux boundname",
             "shape (maxbound)", "reader urword"],
-           ["block packagedata", "name rno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name rno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block packagedata", "name cellid", "type integer", 
-            "shape (ncelldim)", "tagged false", "in_record true", 
+           ["block packagedata", "name cellid", "type integer",
+            "shape (ncelldim)", "tagged false", "in_record true",
             "reader urword"],
-           ["block packagedata", "name rlen", "type double precision", 
+           ["block packagedata", "name rlen", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name rwid", "type double precision", 
+           ["block packagedata", "name rwid", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name rgrd", "type double precision", 
+           ["block packagedata", "name rgrd", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name rtp", "type double precision", 
+           ["block packagedata", "name rtp", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name rbth", "type double precision", 
+           ["block packagedata", "name rbth", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name rhk", "type double precision", 
+           ["block packagedata", "name rhk", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name man", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name man", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block packagedata", "name ncon", "type integer", "shape", 
+           ["block packagedata", "name ncon", "type integer", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name ustrf", "type double precision", 
+           ["block packagedata", "name ustrf", "type double precision",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name ndv", "type integer", "shape", 
+           ["block packagedata", "name ndv", "type integer", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block packagedata", "name aux", "type double precision", 
-            "in_record true", "tagged false", "shape (naux)", "reader urword", 
+           ["block packagedata", "name aux", "type double precision",
+            "in_record true", "tagged false", "shape (naux)", "reader urword",
             "time_series true", "optional true"],
-           ["block packagedata", "name boundname", "type string", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block packagedata", "name boundname", "type string", "shape",
+            "tagged false", "in_record true", "reader urword",
             "optional true"],
-           ["block connectiondata", "name connectiondata", 
+           ["block connectiondata", "name connectiondata",
             "type recarray rno ic", "shape (maxbound)", "reader urword"],
-           ["block connectiondata", "name rno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block connectiondata", "name rno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block connectiondata", "name ic", "type integer", 
-            "shape (ncon(rno))", "tagged false", "in_record true", 
-            "reader urword", "numeric_index true", 
+           ["block connectiondata", "name ic", "type integer",
+            "shape (ncon(rno))", "tagged false", "in_record true",
+            "reader urword", "numeric_index true",
             "support_negative_index true"],
-           ["block diversions", "name diversions", 
-            "type recarray rno idv iconr cprior", "shape (maxbound)", 
+           ["block diversions", "name diversions",
+            "type recarray rno idv iconr cprior", "shape (maxbound)",
             "reader urword"],
-           ["block diversions", "name rno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block diversions", "name rno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block diversions", "name idv", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block diversions", "name idv", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block diversions", "name iconr", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block diversions", "name iconr", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block diversions", "name cprior", "type string", "shape", 
+           ["block diversions", "name cprior", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name iper", "type integer", 
-            "block_variable True", "in_record true", "tagged false", "shape", 
+           ["block period", "name iper", "type integer",
+            "block_variable True", "in_record true", "tagged false", "shape",
             "valid", "reader urword", "optional false"],
-           ["block period", "name perioddata", 
+           ["block period", "name perioddata",
             "type recarray rno sfrsetting", "shape", "reader urword"],
-           ["block period", "name rno", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name rno", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name sfrsetting", 
-            "type keystring status manning stage inflow rainfall evaporation " 
-            "runoff diversionrecord upstream_fraction auxiliaryrecord", 
+           ["block period", "name sfrsetting",
+            "type keystring status manning stage inflow rainfall evaporation "
+            "runoff diversionrecord upstream_fraction auxiliaryrecord",
             "shape", "tagged false", "in_record true", "reader urword"],
-           ["block period", "name status", "type string", "shape", 
+           ["block period", "name status", "type string", "shape",
             "tagged true", "in_record true", "reader urword"],
-           ["block period", "name manning", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name manning", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name stage", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name stage", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name inflow", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name inflow", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name rainfall", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name rainfall", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name evaporation", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name evaporation", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name runoff", "type string", "shape", 
-            "tagged true", "in_record true", "reader urword", 
+           ["block period", "name runoff", "type string", "shape",
+            "tagged true", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name diversionrecord", 
-            "type record diversion idv divrate", "shape", "tagged", 
+           ["block period", "name diversionrecord",
+            "type record diversion idv divrate", "shape", "tagged",
             "in_record true", "reader urword"],
-           ["block period", "name diversion", "type keyword", "shape", 
+           ["block period", "name diversion", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name idv", "type integer", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name idv", "type integer", "shape",
+            "tagged false", "in_record true", "reader urword",
             "numeric_index true"],
-           ["block period", "name divrate", "type double precision", 
-            "shape", "tagged false", "in_record true", "reader urword", 
+           ["block period", "name divrate", "type double precision",
+            "shape", "tagged false", "in_record true", "reader urword",
             "time_series true"],
-           ["block period", "name upstream_fraction", 
-            "type double precision", "shape", "tagged true", "in_record true", 
+           ["block period", "name upstream_fraction",
+            "type double precision", "shape", "tagged true", "in_record true",
             "reader urword"],
-           ["block period", "name auxiliaryrecord", 
-            "type record auxiliary auxname auxval", "shape", "tagged", 
+           ["block period", "name auxiliaryrecord",
+            "type record auxiliary auxname auxval", "shape", "tagged",
             "in_record true", "reader urword"],
-           ["block period", "name auxiliary", "type keyword", "shape", 
+           ["block period", "name auxiliary", "type keyword", "shape",
             "in_record true", "reader urword"],
-           ["block period", "name auxname", "type string", "shape", 
+           ["block period", "name auxname", "type string", "shape",
             "tagged false", "in_record true", "reader urword"],
-           ["block period", "name auxval", "type double precision", "shape", 
-            "tagged false", "in_record true", "reader urword", 
+           ["block period", "name auxval", "type double precision", "shape",
+            "tagged false", "in_record true", "reader urword",
             "time_series true"]]
 
     def __init__(self, model, loading_package=False, auxiliary=None,
                  boundnames=None, print_input=None, print_stage=None,
                  print_flows=None, save_flows=None, stage_filerecord=None,
-                 budget_filerecord=None, ts_filerecord=None,
-                 obs_filerecord=None, mover=None, maximum_iterations=None,
+                 budget_filerecord=None, timeseries=None, observations=None,
+                 mover=None, maximum_iterations=None,
                  maximum_depth_change=None, unit_conversion=None,
                  nreaches=None, packagedata=None, connectiondata=None,
-                 diversions=None, perioddata=None, fname=None, pname=None,
+                 diversions=None, perioddata=None, filename=None, pname=None,
                  parent_file=None):
-        super(ModflowGwfsfr, self).__init__(model, "sfr", fname, pname,
-                                            loading_package, parent_file)        
+        super(ModflowGwfsfr, self).__init__(model, "sfr", filename, pname,
+                                            loading_package, parent_file)
 
         # set up variables
-        self.auxiliary = self.build_mfdata("auxiliary",  auxiliary)
-        self.boundnames = self.build_mfdata("boundnames",  boundnames)
-        self.print_input = self.build_mfdata("print_input",  print_input)
-        self.print_stage = self.build_mfdata("print_stage",  print_stage)
-        self.print_flows = self.build_mfdata("print_flows",  print_flows)
-        self.save_flows = self.build_mfdata("save_flows",  save_flows)
-        self.stage_filerecord = self.build_mfdata("stage_filerecord", 
+        self.auxiliary = self.build_mfdata("auxiliary", auxiliary)
+        self.boundnames = self.build_mfdata("boundnames", boundnames)
+        self.print_input = self.build_mfdata("print_input", print_input)
+        self.print_stage = self.build_mfdata("print_stage", print_stage)
+        self.print_flows = self.build_mfdata("print_flows", print_flows)
+        self.save_flows = self.build_mfdata("save_flows", save_flows)
+        self.stage_filerecord = self.build_mfdata("stage_filerecord",
                                                   stage_filerecord)
-        self.budget_filerecord = self.build_mfdata("budget_filerecord", 
+        self.budget_filerecord = self.build_mfdata("budget_filerecord",
                                                    budget_filerecord)
-        self.ts_filerecord = self.build_mfdata("ts_filerecord",  ts_filerecord)
-        self.obs_filerecord = self.build_mfdata("obs_filerecord", 
-                                                obs_filerecord)
-        self.mover = self.build_mfdata("mover",  mover)
-        self.maximum_iterations = self.build_mfdata("maximum_iterations", 
+        self._ts_filerecord = self.build_mfdata("ts_filerecord",
+                                                None)
+        self._ts_package = self.build_child_package("ts", timeseries,
+                                                    "timeseries",
+                                                    self._ts_filerecord)
+        self._obs_filerecord = self.build_mfdata("obs_filerecord",
+                                                 None)
+        self._obs_package = self.build_child_package("obs", observations,
+                                                     "continuous",
+                                                     self._obs_filerecord)
+        self.mover = self.build_mfdata("mover", mover)
+        self.maximum_iterations = self.build_mfdata("maximum_iterations",
                                                     maximum_iterations)
-        self.maximum_depth_change = self.build_mfdata("maximum_depth_change", 
+        self.maximum_depth_change = self.build_mfdata("maximum_depth_change",
                                                       maximum_depth_change)
-        self.unit_conversion = self.build_mfdata("unit_conversion", 
+        self.unit_conversion = self.build_mfdata("unit_conversion",
                                                  unit_conversion)
-        self.nreaches = self.build_mfdata("nreaches",  nreaches)
-        self.packagedata = self.build_mfdata("packagedata",  packagedata)
-        self.connectiondata = self.build_mfdata("connectiondata", 
+        self.nreaches = self.build_mfdata("nreaches", nreaches)
+        self.packagedata = self.build_mfdata("packagedata", packagedata)
+        self.connectiondata = self.build_mfdata("connectiondata",
                                                 connectiondata)
-        self.diversions = self.build_mfdata("diversions",  diversions)
-        self.perioddata = self.build_mfdata("perioddata",  perioddata)
+        self.diversions = self.build_mfdata("diversions", diversions)
+        self.perioddata = self.build_mfdata("perioddata", perioddata)
+        self._init_complete = True

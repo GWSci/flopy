@@ -2,19 +2,25 @@
 mfmodel module.  Contains the MFModel class
 
 """
-import os, sys, inspect
+import os, sys, inspect, warnings
 import numpy as np
 from .mfbase import PackageContainer, ExtFileAction, PackageContainerType, \
                     MFDataException, ReadAsArraysException, FlopyException, \
-                    StructException
+                    VerbosityLevel
 from .mfpackage import MFPackage
 from .coordinates import modeldimensions
-from .utils.reference import SpatialReference, StructuredSpatialReference, \
-                             VertexSpatialReference
-from .data import mfstructure, mfdatautil
+from ..utils import datautil
+from ..discretization.structuredgrid import StructuredGrid
+from ..discretization.vertexgrid import VertexGrid
+from ..discretization.unstructuredgrid import UnstructuredGrid
+from ..discretization.grid import Grid
+from flopy.discretization.modeltime import ModelTime
+from ..mbase import ModelInterface
+from .utils.mfenums import DiscretizationType
+from .data import mfstructure
 
 
-class MFModel(PackageContainer):
+class MFModel(PackageContainer, ModelInterface):
     """
     MODFLOW Model Class.  Represents a single model in a simulation.
 
@@ -38,6 +44,8 @@ class MFModel(PackageContainer):
         relative path to dis file from model working folder
     grid_type : string
         type of grid the model will use (structured, unstructured, vertices)
+    verbose : bool
+        verbose setting for model operations (default False)
 
     Attributes
     ----------
@@ -80,13 +88,14 @@ class MFModel(PackageContainer):
     def __init__(self, simulation, model_type='gwf6', modelname='model',
                  model_nam_file=None, version='mf6',
                  exe_name='mf6.exe', add_to_simulation=True,
-                 structure=None, model_rel_path='.', **kwargs):
+                 structure=None, model_rel_path='.', verbose=False, **kwargs):
         super(MFModel, self).__init__(simulation.simulation_data, modelname)
         self.simulation = simulation
         self.simulation_data = simulation.simulation_data
         self.name = modelname
         self.name_file = None
-        self.version = version
+        self._version = version
+        self.model_type = model_type
         self.type = 'Model'
 
         if model_nam_file is None:
@@ -105,6 +114,7 @@ class MFModel(PackageContainer):
         self.simulation_data.model_dimensions[modelname] = self.dimensions
         self._ftype_num_dict = {}
         self._package_paths = {}
+        self._verbose = verbose
 
         if model_nam_file is None:
             self.model_nam_file = '{}.nam'.format(modelname)
@@ -112,17 +122,27 @@ class MFModel(PackageContainer):
             self.model_nam_file = model_nam_file
 
         # check for spatial reference info in kwargs
-        xul = kwargs.pop("xul", None)
-        yul = kwargs.pop("yul", None)
+        xll = kwargs.pop("xll", None)
+        yll = kwargs.pop("yll", None)
+        self._xul = kwargs.pop("xul", None)
+        if self._xul is not None:
+            warnings.warn('xul/yul have been deprecated. Use xll/yll instead.',
+                          DeprecationWarning)
+        self._yul = kwargs.pop("yul", None)
+        if self._yul is not None:
+            warnings.warn('xul/yul have been deprecated. Use xll/yll instead.',
+                          DeprecationWarning)
         rotation = kwargs.pop("rotation", 0.)
-        proj4_str = kwargs.pop("proj4_str", "EPSG:4326")
-        self.sr = SpatialReference(xul=xul, yul=yul, rotation=rotation,
-                                   proj4_str=proj4_str)
+        proj4 = kwargs.pop("proj4_str", None)
+        # build model grid object
+        self._modelgrid = Grid(proj4=proj4, xoff=xll, yoff=yll,
+                               angrot=rotation)
 
+        self.start_datetime = None
         # check for extraneous kwargs
         if len(kwargs) > 0:
             kwargs_str = ', '.join(kwargs.keys())
-            excpt_str = 'ERROR: Extraneous kwargs "{}" provided to ' \
+            excpt_str = 'Extraneous kwargs "{}" provided to ' \
                         'MFModel.'.format(kwargs_str)
             raise FlopyException(excpt_str)
 
@@ -132,12 +152,10 @@ class MFModel(PackageContainer):
         if not package_obj:
             excpt_str = 'Name file could not be found for model' \
                         '{}.'.format(model_type[0:3])
-            print(excpt_str)
-            raise StructException(excpt_str)
+            raise FlopyException(excpt_str)
 
-        self.name_file = package_obj(self, fname=self.model_nam_file,
+        self.name_file = package_obj(self, filename=self.model_nam_file,
                                      pname=self.name)
-        self.verbose = simulation.verbose
 
     def __getattr__(self, item):
         """
@@ -158,16 +176,290 @@ class MFModel(PackageContainer):
         """
         return self.get_package(item)
 
-    def __setattr__(self, key, value):
-        if key == "sr":
-            assert isinstance(value, SpatialReference) or \
-                   isinstance(value, StructuredSpatialReference) or \
-                   isinstance(value, VertexSpatialReference)
-        super(MFModel, self).__setattr__(key, value)
+    def __repr__(self):
+        return self._get_data_str(True)
+
+    def __str__(self):
+        return self._get_data_str(False)
+
+    def _get_data_str(self, formal):
+        file_mgr = self.simulation_data.mfpath
+        data_str = 'name = {}\nmodel_type = {}\nversion = {}\nmodel_' \
+                   'relative_path = {}' \
+                   '\n\n'.format(self.name, self.model_type, self.version,
+                                 file_mgr.model_relative_path[self.name])
+
+        for package in self.packagelist:
+            pk_str = package._get_data_str(formal, False)
+            if formal:
+                if len(pk_str.strip()) > 0:
+                    data_str = '{}###################\nPackage {}\n' \
+                               '###################\n\n' \
+                               '{}\n'.format(data_str, package._get_pname(),
+                                             pk_str)
+            else:
+                pk_str = package._get_data_str(formal, False)
+                if len(pk_str.strip()) > 0:
+                    data_str = '{}###################\nPackage {}\n' \
+                               '###################\n\n' \
+                               '{}\n'.format(data_str, package._get_pname(),
+                                             pk_str)
+        return data_str
+
+    @property
+    def nper(self):
+        try:
+            return self.simulation.tdis.nper.array
+        except AttributeError:
+            return None
+
+    @property
+    def modeltime(self):
+        tdis = self.simulation.get_package('tdis')
+        period_data = tdis.perioddata.get_data()
+
+        # build steady state data
+        sto = self.get_package('sto')
+        if sto is None:
+            steady = np.full((len(period_data['perlen'])), True, dtype=bool)
+        else:
+            steady = np.full((len(period_data['perlen'])), False, dtype=bool)
+            ss_periods = sto.steady_state.get_active_key_dict()
+            tr_periods = sto.transient.get_active_key_dict()
+            if ss_periods:
+                last_ss_value = False
+                # loop through steady state array
+                for index, value in enumerate(steady):
+                    # resolve if current index is steady state or transient
+                    if index in ss_periods:
+                        last_ss_value = True
+                    elif index in tr_periods:
+                        last_ss_value = False
+                    if last_ss_value == True:
+                        steady[index] = True
+
+        # build model time
+        itmuni = tdis.time_units.get_data()
+        start_date_time = tdis.start_date_time.get_data()
+        if itmuni is None:
+            itmuni = 0
+        if start_date_time is None:
+            start_date_time = '01-01-1970'
+        data_frame = {'perlen': period_data['perlen'],
+                      'nstp': period_data['nstp'],
+                      'tsmult': period_data['tsmult']}
+        self._model_time = ModelTime(data_frame, itmuni, start_date_time,
+                                     steady)
+        return self._model_time
+
+    @property
+    def modeldiscrit(self):
+        if self.get_grid_type() == DiscretizationType.DIS:
+            dis = self.get_package('dis')
+            return StructuredGrid(nlay=dis.nlay.get_data(),
+                                  nrow=dis.nrow.get_data(),
+                                  ncol=dis.ncol.get_data())
+        elif self.get_grid_type() == DiscretizationType.DISV:
+            dis = self.get_package('disv')
+            return VertexGrid(ncpl=dis.ncpl.get_data(),
+                              nlay=dis.nlay.get_data())
+        elif self.get_grid_type() == DiscretizationType.DISU:
+            dis = self.get_package('disu')
+            return UnstructuredGrid(nodes=dis.nodes.get_data())
+
+    @property
+    def modelgrid(self):
+        if not self._mg_resync:
+            return self._modelgrid
+
+        if self.get_grid_type() == DiscretizationType.DIS:
+            dis = self.get_package('dis')
+            if not hasattr(dis, '_init_complete'):
+                if not hasattr(dis, 'delr'):
+                    # dis package has not yet been initialized
+                    return self._modelgrid
+                else:
+                    # dis package has been partially initialized
+                    self._modelgrid = StructuredGrid(
+                        delc=dis.delc.array, delr=dis.delr.array,
+                        top=None, botm=None, idomain=None, lenuni=None,
+                        proj4=self._modelgrid.proj4, epsg=self._modelgrid.epsg,
+                        xoff=self._modelgrid.xoffset,
+                        yoff=self._modelgrid.yoffset,
+                        angrot=self._modelgrid.angrot)
+            else:
+                self._modelgrid = StructuredGrid(
+                    delc=dis.delc.array, delr=dis.delr.array,
+                    top=dis.top.array, botm=dis.botm.array,
+                    idomain=dis.idomain.array, lenuni=dis.length_units.array,
+                    proj4=self._modelgrid.proj4, epsg=self._modelgrid.epsg,
+                    xoff=self._modelgrid.xoffset, yoff=self._modelgrid.yoffset,
+                    angrot=self._modelgrid.angrot)
+        elif self.get_grid_type() == DiscretizationType.DISV:
+            dis = self.get_package('disv')
+            if not hasattr(dis, '_init_complete'):
+                if not hasattr(dis, 'cell2d'):
+                    # disv package has not yet been initialized
+                    return self._modelgrid
+                else:
+                    # disv package has been partially initialized
+                    self._modelgrid = VertexGrid(vertices=dis.vertices.array,
+                                                 cell2d=dis.cell2d.array,
+                                                 top=None,
+                                                 botm=None,
+                                                 idomain=None,
+                                                 lenuni=None,
+                                                 proj4=self._modelgrid.proj4,
+                                                 epsg=self._modelgrid.epsg,
+                                                 xoff=self._modelgrid.xoffset,
+                                                 yoff=self._modelgrid.yoffset,
+                                                 angrot=self._modelgrid.angrot)
+            else:
+                self._modelgrid = VertexGrid(
+                    vertices=dis.vertices.array, cell2d=dis.cell2d.array,
+                    top=dis.top.array, botm=dis.botm.array,
+                    idomain=dis.idomain.array, lenuni=dis.length_units.array,
+                    proj4=self._modelgrid.proj4, epsg=self._modelgrid.epsg,
+                    xoff=self._modelgrid.xoffset, yoff=self._modelgrid.yoffset,
+                    angrot=self._modelgrid.angrot)
+        elif self.get_grid_type() == DiscretizationType.DISU:
+            dis = self.get_package('disu')
+            if not hasattr(dis, '_init_complete'):
+                # disu package has not yet been fully initialized
+                return self._modelgrid
+            cell2d = dis.cell2d.array
+            idomain = np.ones(dis.nodes.array, np.int32)
+            if cell2d is None:
+                if self.simulation.simulation_data.verbosity_level.value >= \
+                        VerbosityLevel.normal.value:
+                    print('WARNING: cell2d information missing. Functionality of '
+                          'the UnstructuredGrid will be limited.')
+                iverts = None
+                xcenters = None
+                ycenters = None
+            else:
+                iverts = [list(i)[4:] for i in cell2d]
+                xcenters = dis.cell2d.array['xc']
+                ycenters = dis.cell2d.array['yc']
+            vertices = dis.vertices.array
+            if vertices is None:
+                if self.simulation.simulation_data.verbosity_level.value >= \
+                        VerbosityLevel.normal.value:
+                    print('WARNING: vertices information missing. Functionality '
+                          'of the UnstructuredGrid will be limited.')
+                vertices = None
+            else:
+                vertices = np.array(vertices)
+
+            self._modelgrid = UnstructuredGrid(
+                vertices=vertices, iverts=iverts,
+                xcenters=xcenters,
+                ycenters=ycenters, top=dis.top.array,
+                botm=dis.bot.array, idomain=idomain,
+                lenuni=dis.length_units.array, proj4=self._modelgrid.proj4,
+                epsg=self._modelgrid.epsg, xoff=self._modelgrid.xoffset,
+                yoff=self._modelgrid.yoffset, angrot=self._modelgrid.angrot)
+        else:
+            return self._modelgrid
+
+        if self.get_grid_type() != DiscretizationType.DISV:
+            # get coordinate data from dis file
+            xorig = dis.xorigin.get_data()
+            yorig = dis.yorigin.get_data()
+            angrot = dis.angrot.get_data()
+        else:
+            xorig = self._modelgrid.xoffset
+            yorig = self._modelgrid.yoffset
+            angrot = self._modelgrid.angrot
+
+        # resolve offsets
+        if xorig is None:
+            xorig = self._modelgrid.xoffset
+        if xorig is None:
+            if self._xul is not None:
+                xorig = self._modelgrid._xul_to_xll(self._xul)
+            else:
+                xorig = 0.0
+        if yorig is None:
+            yorig = self._modelgrid.yoffset
+        if yorig is None:
+            if self._yul is not None:
+                yorig = self._modelgrid._yul_to_yll(self._yul)
+            else:
+                yorig = 0.0
+        if angrot is None:
+            angrot = self._modelgrid.angrot
+        self._modelgrid.set_coord_info(xorig, yorig, angrot,
+                                       self._modelgrid.epsg,
+                                       self._modelgrid.proj4)
+
+        return self._modelgrid
+
+    @property
+    def packagelist(self):
+        return self._packagelist
+
+    @property
+    def namefile(self):
+        return self.model_nam_file
+
+    @property
+    def model_ws(self):
+        file_mgr = self.simulation_data.mfpath
+        return file_mgr.get_model_path(self.name)
+
+    @property
+    def exename(self):
+        return self.exe_name
+
+    @property
+    def version(self):
+        return self._version
+
+    @property
+    def solver_tols(self):
+        ims = self.get_ims_package()
+        if ims is not None:
+            rclose = ims.rcloserecord.get_data()
+            if rclose is not None:
+                rclose = rclose[0][0]
+            return ims.inner_hclose.get_data(), rclose
+        return None
+
+    @property
+    def laytyp(self):
+        try:
+            return self.npf.icelltype.array
+        except AttributeError:
+            return None
+
+    @property
+    def hdry(self):
+        return None
+
+    @property
+    def hnoflow(self):
+        return None
+
+    @property
+    def laycbd(self):
+        return None
+
+    def export(self, f, **kwargs):
+        from ..export import utils
+        return utils.model_export(f, self, **kwargs)
+
+    @property
+    def verbose(self):
+        return self._verbose
+
+    @verbose.setter
+    def verbose(self, verbose):
+        self._verbose = verbose
 
     @classmethod
     def load_base(cls, simulation, structure, modelname='NewModel',
-                  model_nam_file='modflowtest.nam', type='gwf', version='mf6',
+                  model_nam_file='modflowtest.nam', mtype='gwf', version='mf6',
                   exe_name='mf6.exe', strict=True, model_rel_path='.'):
         """
         Load an existing model.
@@ -201,8 +493,7 @@ class MFModel(PackageContainer):
         Examples
         --------
         """
-
-        instance = cls(simulation, type, modelname,
+        instance = cls(simulation, mtype, modelname,
                        model_nam_file=model_nam_file,
                        version=version, exe_name=exe_name,
                        add_to_simulation=False, structure=structure,
@@ -237,14 +528,16 @@ class MFModel(PackageContainer):
                     filemgr = simulation.simulation_data.mfpath
                     fname = filemgr.strip_model_relative_path(modelname,
                                                               fname)
-                print('loading {}...'.format(fname))
+                if simulation.simulation_data.verbosity_level.value >= \
+                        VerbosityLevel.normal.value:
+                    print('    loading package {}...'.format(ftype))
                 # load package
                 instance.load_package(ftype, fname, pname, strict, None)
 
         # load referenced packages
         if modelname in instance.simulation_data.referenced_files:
-            for index, ref_file in \
-              instance.simulation_data.referenced_files[modelname].items():
+            for ref_file in \
+              instance.simulation_data.referenced_files[modelname].values():
                 if (ref_file.file_type in structure.package_struct_objs or
                   ref_file.file_type in sim_struct.utl_struct_objs) and \
                   not ref_file.loaded:
@@ -276,11 +569,75 @@ class MFModel(PackageContainer):
         """
 
         # write name file
+        if self.simulation_data.verbosity_level.value >= \
+                VerbosityLevel.normal.value:
+            print('    writing model name file...')
+
         self.name_file.write(ext_file_action=ext_file_action)
 
         # write packages
-        for pp in self.packages:
+        for pp in self.packagelist:
+            if self.simulation_data.verbosity_level.value >= \
+                    VerbosityLevel.normal.value:
+                print('    writing package {}...'.format(pp._get_pname()))
             pp.write(ext_file_action=ext_file_action)
+
+    def get_grid_type(self):
+        """
+        Return the type of grid used by model 'model_name' in simulation
+        containing simulation data 'simulation_data'.
+
+        Returns
+        -------
+        grid type : DiscritizationType
+        """
+        package_recarray = self.name_file.packages
+        structure = mfstructure.MFStructure()
+        if package_recarray.search_data(
+                'dis{}'.format(structure.get_version_string()),
+                0) is not None:
+            return DiscretizationType.DIS
+        elif package_recarray.search_data(
+                'disv{}'.format(structure.get_version_string()),
+                0) is not None:
+            return DiscretizationType.DISV
+        elif package_recarray.search_data(
+                'disu{}'.format(structure.get_version_string()),
+                0) is not None:
+            return DiscretizationType.DISU
+
+        return DiscretizationType.UNDEFINED
+
+    def get_ims_package(self):
+        solution_group = self.simulation.name_file.solutiongroup.get_data()
+        for record in solution_group:
+            for model_name in record[2:]:
+                if model_name == self.name:
+                    return self.simulation.get_ims_package(record[1])
+        return None
+
+    def get_steadystate_list(self):
+        ss_list = []
+        tdis = self.simulation.get_package('tdis')
+        period_data = tdis.perioddata.get_data()
+        index = 0
+        pd_len = len(period_data)
+        while index < pd_len:
+            ss_list.append(True)
+            index += 1
+
+        storage = self.get_package('sto')
+        if storage is not None:
+            tr_keys = storage.transient.get_keys(True)
+            ss_keys = storage.steady_state.get_keys(True)
+            for key in tr_keys:
+                ss_list[key] = False
+                for ss_list_key in range(key + 1, len(ss_list)):
+                    for ss_key in ss_keys:
+                        if ss_key == ss_list_key:
+                            break
+                        ss_list[key] = False
+        return ss_list
 
     def is_valid(self):
         """
@@ -302,12 +659,12 @@ class MFModel(PackageContainer):
             return False
 
         # valid packages
-        for pp in self.packages:
+        for pp in self.packagelist:
             if not pp.is_valid():
                 return False
 
         # required packages exist
-        for key, package_struct in self.structure.package_struct_objs.items():
+        for package_struct in self.structure.package_struct_objs.values():
             if not package_struct.optional and not package_struct.file_type \
               in self.package_type_dict:
                 return False
@@ -343,7 +700,7 @@ class MFModel(PackageContainer):
             models = self.simulation.name_file.models
             models_data = models.get_data()
             for index, entry in enumerate(models_data):
-                old_model_path, old_model_file_name = os.path.split(entry[1])
+                old_model_file_name = os.path.split(entry[1])[1]
                 old_model_base_name = os.path.splitext(old_model_file_name)[0]
                 if old_model_base_name.lower() == self.name.lower() or \
                         self.name == entry[2]:
@@ -375,14 +732,13 @@ class MFModel(PackageContainer):
                 packages = self.name_file.packages
                 packages_data = packages.get_data()
                 for index, entry in enumerate(packages_data):
-                    old_package_path, \
-                    old_package_name = os.path.split(entry[1])
+                    old_package_name = os.path.split(entry[1])[1]
                     packages_data[index][1] = os.path.join(path,
                                                            old_package_name)
                 packages.set_data(packages_data)
 
                 # update files referenced from within packages
-                for package in self.packages:
+                for package in self.packagelist:
                     package.set_model_relative_path(model_ws)
 
     def _remove_package_from_dictionaries(self, package):
@@ -415,10 +771,9 @@ class MFModel(PackageContainer):
                 packages = [packages]
         for package in packages:
             if package._model_or_sim.name != self.name:
-                except_text = 'ERROR: Package can not be removed from model {} ' \
+                except_text = 'Package can not be removed from model {} ' \
                               'since it is ' \
                               'not part of '
-                print(except_text)
                 raise mfstructure.FlopyException(except_text)
 
             self._remove_package_from_dictionaries(package)
@@ -437,7 +792,7 @@ class MFModel(PackageContainer):
             try:
                 new_rec_array = None
                 for item in package_data:
-                    if item[1] != package.filename:
+                    if item[1] != package._filename:
                         if new_rec_array is None:
                             new_rec_array = np.rec.array(item, package_data.dtype)
                         else:
@@ -465,7 +820,7 @@ class MFModel(PackageContainer):
 
             # build list of child packages
             child_package_list = []
-            for pkg in self.packages:
+            for pkg in self.packagelist:
                 if pkg.parent_file is not None and pkg.parent_file.path == \
                         package.path:
                     child_package_list.append(pkg)
@@ -506,13 +861,15 @@ class MFModel(PackageContainer):
                 set_package_name and package.package_name in \
                 self.package_name_dict:
             # package of this type with this name already exists, replace it
-            print('WARNING: Package with name {} already exists. '
-                  'Replacing existing package.'.format(package.package_name))
+            if self.simulation_data.verbosity_level.value >= \
+                    VerbosityLevel.normal.value:
+                print('WARNING: Package with name {} already exists. '
+                      'Replacing existing package.'.format(package.package_name))
             self.remove_package(self.package_name_dict[package.package_name])
 
         # make sure path is unique
         if path in self._package_paths:
-            path_iter = mfdatautil.PathIter(path)
+            path_iter = datautil.PathIter(path)
             for new_path in path_iter:
                 if new_path not in self._package_paths:
                     path = new_path
@@ -529,7 +886,7 @@ class MFModel(PackageContainer):
             if package_struct is not None and \
               package_struct.multi_package_support:
                 # check for other registered packages of this type
-                name_iter = mfdatautil.NameIter(package.package_type, False)
+                name_iter = datautil.NameIter(package.package_type, False)
                 for package_name in name_iter:
                     if package_name not in self.package_name_dict:
                         package.package_name = package_name
@@ -538,7 +895,7 @@ class MFModel(PackageContainer):
                 package.package_name = package.package_type
 
         if set_package_filename:
-            package.filename = '{}.{}'.format(self.name, package.package_type)
+            package._filename = '{}.{}'.format(self.name, package.package_type)
 
         if add_to_package_list:
             self._add_package(package, path)
@@ -551,16 +908,18 @@ class MFModel(PackageContainer):
                 if len(pkg_type) > 3 and pkg_type[-1] == 'A':
                     pkg_type = pkg_type[0:-1]
                 # Model Assumption - assuming all name files have a package
-                # rec array
+                # recarray
                 self.name_file.packages.\
-                  update_record(['{}6'.format(pkg_type), package.filename,
-                  package.package_name], 0)
+                    update_record(['{}6'.format(pkg_type), package._filename,
+                                   package.package_name], 0)
         if package_struct is not None:
             return (path, package_struct)
         else:
-            print('WARNING: Unable to register unsupported file type {} for '
-                  'model {}.'.format(package.package_type, self.name))
-        return (None, None)
+            if self.simulation_data.verbosity_level.value >= \
+                    VerbosityLevel.normal.value:
+                print('WARNING: Unable to register unsupported file type {} '
+                      'for model {}.'.format(package.package_type, self.name))
+        return None, None
 
     def load_package(self, ftype, fname, pname, strict, ref_path,
                      dict_package_name=None, parent_package=None):
@@ -587,6 +946,8 @@ class MFModel(PackageContainer):
         Examples
         --------
         """
+        if ref_path is not None:
+            fname = os.path.join(ref_path, fname)
         sim_struct = mfstructure.MFStructure().sim_struct
         if (ftype in self.structure.package_struct_objs and
           self.structure.package_struct_objs[ftype].multi_package_support) or \
@@ -623,12 +984,12 @@ class MFModel(PackageContainer):
 
         # clean up model type text
         model_type = self.structure.model_type
-        while mfdatautil.DatumUtil.is_int(model_type[-1]):
+        while datautil.DatumUtil.is_int(model_type[-1]):
             model_type = model_type[0:-1]
 
         # create package
         package_obj = self.package_factory(ftype, model_type)
-        package = package_obj(self, fname=fname, pname=dict_package_name,
+        package = package_obj(self, filename=fname, pname=dict_package_name,
                               loading_package=True,
                               parent_file=parent_package)
         try:
@@ -636,7 +997,7 @@ class MFModel(PackageContainer):
         except ReadAsArraysException:
             #  create ReadAsArrays package and load it instead
             package_obj = self.package_factory('{}a'.format(ftype), model_type)
-            package = package_obj(self, fname=fname, pname=dict_package_name,
+            package = package_obj(self, filename=fname, pname=dict_package_name,
                                   loading_package=True,
                                   parent_file=parent_package)
             package.load(strict)
@@ -646,3 +1007,45 @@ class MFModel(PackageContainer):
         if parent_package is not None:
             # register child package with the parent package
             parent_package._add_package(package, package.path)
+
+        return package
+
+    def plot(self, SelPackList=None, **kwargs):
+        """
+        Plot 2-D, 3-D, transient 2-D, and stress period list (MfList)
+        model input data from a model instance
+
+        Args:
+            model: Flopy model instance
+            SelPackList: (list) list of package names to plot, if none
+                all packages will be plotted
+
+            **kwargs : dict
+                filename_base : str
+                    Base file name that will be used to automatically generate file
+                    names for output image files. Plots will be exported as image
+                    files if file_name_base is not None. (default is None)
+                file_extension : str
+                    Valid matplotlib.pyplot file extension for savefig(). Only used
+                    if filename_base is not None. (default is 'png')
+                mflay : int
+                    MODFLOW zero-based layer number to return.  If None, then all
+                    all layers will be included. (default is None)
+                kper : int
+                    MODFLOW zero-based stress period number to return.
+                    (default is zero)
+                key : str
+                    MfList dictionary key. (default is None)
+
+        Returns:
+            axes : list
+                Empty list is returned if filename_base is not None. Otherwise
+                a list of matplotlib.pyplot.axis are returned.
+        """
+        from flopy.plot.plotutil import PlotUtilities
+
+        axes = PlotUtilities._plot_model_helper(self,
+                                                SelPackList=SelPackList,
+                                                **kwargs)
+
+        return axes

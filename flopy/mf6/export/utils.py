@@ -348,7 +348,8 @@ def output_helper(f, ml, oudic, **kwargs):
                     #     shape3d = out_obj.get_data(text=text)[0].flatten().shape
                     # else:
                     #     shape3d = grd.num_cells(),
-                    if "FLOW-JA-FACE" in text:
+                    print(text, type(text))
+                    if b"FLOW-JA-FACE" in text:
                         pass
                     else:
                         print ("WITTW ", text, shape3d)

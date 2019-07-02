@@ -1,5 +1,4 @@
 import os
-import platform
 import shutil
 
 import flopy
@@ -19,8 +18,6 @@ def test_create_and_run_model():
     sim_name = 'testsim'
     model_name = 'testmodel'
     exe_name = 'mf6'
-    if platform.system() == 'Windows':
-        exe_name += '.exe'
 
     # set up simulation
     tdis_name = '{}.tdis'.format(sim_name)
@@ -52,11 +49,11 @@ def test_create_and_run_model():
                                          nrow=1, ncol=10, delr=500.0,
                                          delc=500.0,
                                          top=100.0, botm=50.0,
-                                         fname='{}.dis'.format(model_name))
+                                         filename='{}.dis'.format(model_name))
     ic_package = mfgwfic.ModflowGwfic(model,
                                       strt=[100.0, 100.0, 100.0, 100.0, 100.0,
                                             100.0, 100.0, 100.0, 100.0, 100.0],
-                                      fname='{}.ic'.format(model_name))
+                                      filename='{}.ic'.format(model_name))
     npf_package = mfgwfnpf.ModflowGwfnpf(model, save_flows=True, icelltype=1,
                                          k=100.0)
 

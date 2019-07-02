@@ -1,10 +1,10 @@
-__author__ = 'emorway'
-
 import sys
 import numpy as np
 
 from ..pakbase import Package
-from ..utils import Util2d, read1d, MfList
+from ..utils import Util2d, MfList
+
+__author__ = 'emorway'
 
 
 class Mt3dLkt(Package):
@@ -20,49 +20,49 @@ class Mt3dLkt(Package):
         is equal to the number of simulated lakes as specified in the flow
         simulation
     mxlkbc : int
-        must be greater than or equal to the sum total of boundary conditions 
+        must be greater than or equal to the sum total of boundary conditions
         applied to each lake
-    icbclk : int 
+    icbclk : int
         is equal to the unit number on which lake-by-lake transport information
-        will be printed.  This unit number must appear in the NAM input file 
+        will be printed.  This unit number must appear in the NAM input file
         required for every MT3D-USGS simulation.
-    ietlak : int 
-        specifies whether or not evaporation as simulated in the flow solution 
+    ietlak : int
+        specifies whether or not evaporation as simulated in the flow solution
         will act as a mass sink.
         = 0, Mass does not exit the model via simulated lake evaporation
         != 0, Mass may leave the lake via simulated lake evaporation
     coldlak : array of floats
-        is a vector of real numbers representing the initial concentrations in 
-        the simulated lakes.  The length of the vector is equal to the number 
-        of simulated lakes, NLKINIT.  Initial lake concentrations should be 
-        in the same order as the lakes appearing in the LAK input file 
+        is a vector of real numbers representing the initial concentrations in
+        the simulated lakes.  The length of the vector is equal to the number
+        of simulated lakes, NLKINIT.  Initial lake concentrations should be
+        in the same order as the lakes appearing in the LAK input file
         corresponding to the MODFLOW simulation.
     ntmp : int
-        is an integer value corresponding to the number of specified lake 
-        boundary conditions to follow.  For the first stress period, this 
-        value must be greater than or equal to zero, but may be less than 
+        is an integer value corresponding to the number of specified lake
+        boundary conditions to follow.  For the first stress period, this
+        value must be greater than or equal to zero, but may be less than
         zero in subsequent stress periods.
     ilkbc : int
-        is the lake number for which the current boundary condition will be 
+        is the lake number for which the current boundary condition will be
         specified
     ilkbctyp : int
         specifies what the boundary condition type is for ilakbc
-           1   a precipitation boundary. If precipitation directly to lakes 
-               is simulated in the flow model and a non-zero concentration 
+           1   a precipitation boundary. If precipitation directly to lakes
+               is simulated in the flow model and a non-zero concentration
                (default is zero) is desired, use ISFBCTYP = 1;
-           2   a runoff boundary condition that is not the same thing as 
-               runoff simulated in the UZF1 package and routed to a lake (or 
-               stream) using the IRNBND array.  Users who specify runoff in 
-               the LAK input via the RNF variable appearing in record set 9a 
-               and want to assign a non-zero concentration (default is zero) 
+           2   a runoff boundary condition that is not the same thing as
+               runoff simulated in the UZF1 package and routed to a lake (or
+               stream) using the IRNBND array.  Users who specify runoff in
+               the LAK input via the RNF variable appearing in record set 9a
+               and want to assign a non-zero concentration (default is zero)
                associated with this specified source, use ISFBCTYP=2;
-           3   a Pump boundary condition.  Users who specify a withdrawl
-               from a lake via the WTHDRW variable appearing in record set 9a 
-               and want to assign a non-zero concentration (default is zero) 
+           3   a Pump boundary condition.  Users who specify a withdrawal
+               from a lake via the WTHDRW variable appearing in record set 9a
+               and want to assign a non-zero concentration (default is zero)
                associated with this specified source, use ISFBCTYP=2;
-           4   an evaporation boundary condition.  In models where evaporation 
+           4   an evaporation boundary condition.  In models where evaporation
                is simulated directly from the surface of the lake, users can use
-               this boundary condition to specify a non-zero concentration 
+               this boundary condition to specify a non-zero concentration
                (default is zero) associated with the evaporation losses.
     extension : string
         Filename extension (default is 'lkt')
@@ -105,11 +105,12 @@ class Mt3dLkt(Package):
 
     def __init__(self, model, nlkinit=0, mxlkbc=0, icbclk=None, ietlak=0,
                  coldlak=0.0, lk_stress_period_data=None, dtype=None,
-                 extension='lkt', unitnumber=None, filenames=None, **kwargs):
+                 extension='lkt', unitnumber=None, filenames=None, iprn=-1,
+                 **kwargs):
 
         # set default unit number of one is not specified
         if unitnumber is None:
-            unitnumber = Mt3dLkt.defaultunit()
+            unitnumber = Mt3dLkt.reservedunit()
         elif unitnumber == 0:
             unitnumber = Mt3dLkt.reservedunit()
 
@@ -126,9 +127,16 @@ class Mt3dLkt(Package):
                     filenames.append(None)
 
         if icbclk is not None:
-            fname = filenames[1]
-            extension = 'lkcobs.out'
-            model.add_output_file(icbclk, fname=fname, extension=extension,
+            ext = 'lkcobs.out'
+            if filenames[1] is not None:
+                if len(filenames[1].split('.',
+                                          1)) > 1:  # already has extension
+                    fname = '{}.{}'.format(*filenames[1].split('.', 1))
+                else:
+                    fname = '{}.{}'.format(filenames[1], ext)
+            else:
+                fname = '{}.{}'.format(model.name, ext)
+            model.add_output_file(icbclk, fname=fname, extension=None,
                                   binflag=False, package=Mt3dLkt.ftype())
         else:
             icbclk = 0
@@ -158,14 +166,28 @@ class Mt3dLkt(Package):
         self.ietlak = ietlak
 
         # Set initial lake concentrations
-        if coldlak is not None:
-            self.coldlak = Util2d(self.parent, (nlkinit,), np.float32, coldlak,
-                                  name='coldlak', locat=self.unit_number[0],
-                                  array_free_format=model.free_format)
-        else:
-            self.coldlak = Util2d(self.parent, (nlkinit,), np.float32, 0.0,
-                                  name='coldlak', locat=self.unit_number[0],
-                                  array_free_format=model.free_format)
+        self.coldlak = []
+        u2d = Util2d(self.parent, (nlkinit,), np.float32, coldlak,
+                     name='coldlak', locat=self.unit_number[0],
+                     array_free_format=False, iprn=iprn)
+        self.coldlak.append(u2d)
+
+        # next, handle multi-species when appropriate
+        if ncomp > 1:
+            for icomp in range(2, ncomp + 1):
+                for base_name, attr in zip(["coldlak"], [self.coldlak]):
+                    name = "{0}{1}".format(base_name, icomp)
+                    if name in kwargs:
+                        val = kwargs.pop(name)
+                    else:
+                        print(
+                            "LKT: setting {0} for component {1} to zero, kwarg name {2}".
+                            format(base_name, icomp, name))
+                        val = 0.0
+                    u2d = Util2d(model, (nlkinit,), np.float32, val,
+                                 name=name, locat=self.unit_number[0],
+                                 array_free_format=model.free_format)
+                    self.coldlak.append(u2d)
 
         # Set transient data
         if dtype is not None:
@@ -178,6 +200,11 @@ class Mt3dLkt(Package):
         else:
             self.lk_stress_period_data = MfList(self, model=model,
                                                 data=lk_stress_period_data)
+
+        # Check to make sure that all kwargs have been consumed
+        if len(list(kwargs.keys())) > 0:
+            raise Exception("LKT error: unrecognized kwargs: " +
+                            ' '.join(list(kwargs.keys())))
 
         self.parent.add_package(self)
         return
@@ -202,7 +229,8 @@ class Mt3dLkt(Package):
                     '# NLKINIT, MXLKBC, ICBCLK, IETLAK\n')
 
         # Item 2
-        f_lkt.write(self.coldlak.get_file_entry())
+        for s in range(len(self.coldlak)):
+            f_lkt.write(self.coldlak[s].get_file_entry())
 
         # Items 3-4
         # (Loop through each stress period and write LKT information)
@@ -213,7 +241,7 @@ class Mt3dLkt(Package):
 
             # List of concentrations associated with fluxes in/out of lake
             # (Evap, precip, specified runoff into the lake, specified
-            # withdrawl directly from the lake
+            # withdrawal directly from the lake
             if self.lk_stress_period_data is not None:
                 self.lk_stress_period_data.write_transient(f_lkt,
                                                            single_per=kper)
@@ -236,7 +264,7 @@ class Mt3dLkt(Package):
             The model object (of type :class:`flopy.mt3d.mt.Mt3dms`) to
             which this package will be added.
         nlak : int
-            number of lakes to be simulated 
+            number of lakes to be simulated
         nper : int
             number of stress periods
         ncomp : int
@@ -291,10 +319,7 @@ class Mt3dLkt(Package):
         # Item 1 (NLKINIT,MXLKBC,ICBCLK,IETLAK)
         line = f.readline()
         if line[0] == '#':
-            if model.verbose:
-                print(
-                    '   LKT package currently does not support comment lines...')
-                sys.exit()
+            raise ValueError('LKT package does not support comment lines')
 
         if model.verbose:
             print('   loading nlkinit,mxlkbc,icbclk,ietlak   ')
@@ -319,19 +344,27 @@ class Mt3dLkt(Package):
 
         # Item 2 (COLDLAK - Initial concentration in this instance)
         if model.verbose:
-            print('   loading initial concentration   ')
-        if model.array_foramt == 'free':
-            # ******************************
-            # Need to fill this section out
-            # ******************************
-            pass
-        else:
-            # Read header line
-            line = f.readline()
+            print('   loading initial concentration (COLDLAK)  ')
+            if model.free_format:
+                print('   Using MODFLOW style array reader utilities to ' \
+                      'read COLDLAK')
+            elif model.array_format == 'mt3d':
+                print('   Using historic MT3DMS array reader utilities to ' \
+                      'read COLDLAK')
 
-            # Next, read the values
-            coldlak = np.empty((nlkinit), dtype=np.float)
-            coldlak = read1d(f, coldlak)
+        kwargs = {}
+        coldlak = Util2d.load(f, model, (nlkinit,), np.float32, 'coldlak1',
+                              ext_unit_dict, array_format=model.array_format)
+
+        if ncomp > 1:
+            for icomp in range(2, ncomp + 1):
+                name = "coldlak" + str(icomp)
+                if model.verbose:
+                    print('   loading {}...'.format(name))
+                u2d = Util2d.load(f, model, (nlkinit,), np.float32,
+                                  name, ext_unit_dict,
+                                  array_format=model.array_format)
+                kwargs[name] = u2d
 
         # dtype
         dtype = Mt3dLkt.get_default_dtype(ncomp)
@@ -344,10 +377,10 @@ class Mt3dLkt(Package):
                 print('   loading lkt boundary condition data for kper {0:5d}'
                       .format(iper + 1))
 
-            # Item 3: NTMP: An integer value corresponding to the number of 
-            #         specified lake boundary conditions to follow.  
-            #         For the first stress period, this value must be greater 
-            #         than or equal to zero, but may be less than zero in 
+            # Item 3: NTMP: An integer value corresponding to the number of
+            #         specified lake boundary conditions to follow.
+            #         For the first stress period, this value must be greater
+            #         than or equal to zero, but may be less than zero in
             #         subsequent stress periods.
             line = f.readline()
             vals = line.strip().split()
@@ -370,10 +403,10 @@ class Mt3dLkt(Package):
                     t = []
                     for ivar in range(2):
                         t.append(m_arr[ivar])
-                    cbclk = len(current_sf.dtype.names) - 2
-                    if cbcsf > 0:
+                    cbclk = len(current_lk.dtype.names) - 2
+                    if cbclk > 0:
                         for ilkvar in range(cbclk):
-                            t.append(m_arr[ilkvar + 3])
+                            t.append(m_arr[ilkvar + 2])
                     current_lk[ilkbnd] = tuple(t[:len(current_lk.dtype.names)])
                 # Convert ILKBC (node) index to zero-based
                 current_lk['node'] -= 1
@@ -402,19 +435,19 @@ class Mt3dLkt(Package):
         lkt = Mt3dLkt(model, nlkinit=nlkinit, mxlkbc=mxlkbc, icbclk=icbclk,
                       ietlak=ietlak, coldlak=coldlak,
                       lk_stress_period_data=lk_stress_period_data,
-                      unitnumber=unitnumber, filenames=filenames)
+                      unitnumber=unitnumber, filenames=filenames, **kwargs)
         return lkt
 
     @staticmethod
     def get_default_dtype(ncomp=1):
         """
-        Construct a dtype for the recarray containing the list of boundary 
+        Construct a dtype for the recarray containing the list of boundary
         conditions interacting with the lake (i.e., pumps, specified runoff...)
         """
         type_list = [("node", np.int), ("ilkbctyp", np.int), \
                      ("cbclk0", np.float32)]
         if ncomp > 1:
-            for icomp in range(1, ncomp + 1):
+            for icomp in range(2, ncomp + 1):
                 comp_name = "cbclk({0:02d})".format(icomp)
                 type_list.append((comp_name, np.float32))
         dtype = np.dtype(type_list)

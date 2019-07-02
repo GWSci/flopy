@@ -84,7 +84,8 @@ class ModflowEvt(Package):
 
     """
 
-    def __init__(self, model, nevtop=3, ipakcb=None, surf=0., evtr=1e-3, exdp=1.,
+    def __init__(self, model, nevtop=3, ipakcb=None, surf=0., evtr=1e-3,
+                 exdp=1.,
                  ievt=1,
                  extension='evt', unitnumber=None, filenames=None,
                  external=True):
@@ -141,18 +142,18 @@ class ModflowEvt(Package):
                                 evtr, name='etvr')
         self.exdp = Transient2d(model, (nrow, ncol), np.float32,
                                 exdp, name='exdp')
-        self.ievt = Transient2d(model, (nrow, ncol), np.int,
+        self.ievt = Transient2d(model, (nrow, ncol), np.int32,
                                 ievt, name='ievt')
         self.np = 0
         self.parent.add_package(self)
 
     def ncells(self):
-        # Returns the  maximum number of cells that have 
+        # Returns the  maximum number of cells that have
         # evapotranspiration (developed for MT3DMS SSM package)
         nrow, ncol, nlay, nper = self.parent.nrow_ncol_nlay_nper
         return (nrow * ncol)
 
-    def write_file(self,f=None):
+    def write_file(self, f=None):
         """
         Write the package file.
 
@@ -325,7 +326,7 @@ class ModflowEvt(Package):
                     if model.verbose:
                         print('   loading ievt stress period {0:3d}...'.format(
                             iper + 1))
-                    t = Util2d.load(f, model, (nrow, ncol), np.int, 'ievt',
+                    t = Util2d.load(f, model, (nrow, ncol), np.int32, 'ievt',
                                     ext_unit_dict)
                     current_ievt = t
                 ievt[iper] = current_ievt

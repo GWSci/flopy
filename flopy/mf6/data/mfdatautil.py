@@ -1,35 +1,366 @@
-import os, sys, inspect
+import sys, inspect
 import numpy as np
 from copy import deepcopy
-from ..mfbase import MFDataException
+from ..mfbase import MFDataException, FlopyException
+from .mfstructure import DatumType
+from ...utils.datautil import PyListUtil
+import struct
 
 
-def clean_name(name):
-    # remove bad characters
-    clean_string = name.replace(' ', '_')
-    clean_string = clean_string.replace('-', '_')
-    # remove anything after a parenthesis
-    index = clean_string.find('(')
-    if index != -1:
-        clean_string = clean_string[0:index]
-
-    return clean_string
+def get_first_val(arr):
+    while isinstance(arr, list) or isinstance(arr, np.ndarray):
+        arr = arr[0]
+    return arr
 
 
-def find_keyword(arr_line, keyword_dict):
-    # convert to lower case
-    arr_line_lower = []
-    for word in arr_line:
-        # integers and floats are not keywords
-        if not DatumUtil.is_int(word) and not DatumUtil.is_float(word):
-            arr_line_lower.append(word.lower())
-    # look for constants in order of most words to least words
-    key = ''
-    for num_words in range(len(arr_line_lower), -1, -1):
-        key = tuple(arr_line_lower[0:num_words])
-        if len(key) > 0 and key in keyword_dict:
-            return key
-    return None
+# convert_data(data, type) : type
+#    converts data "data" to type "type" and returns the converted data
+def convert_data(data, data_dimensions, data_type, data_item=None):
+    if data_type == DatumType.double_precision:
+        if data_item is not None and data_item.support_negative_index:
+            val = int(PyListUtil.clean_numeric(data))
+            if val == -1:
+                return -0.0
+            elif val == 1:
+                return 0.0
+            elif val < 0:
+                val += 1
+            else:
+                val -= 1
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                message = 'Data "{}" with value "{}" can ' \
+                          'not be converted to float' \
+                           '.'.format(data_dimensions.structure.name,
+                                      data)
+                type_, value_, traceback_ = sys.exc_info()
+                raise MFDataException(
+                    data_dimensions.structure.get_model(),
+                    data_dimensions.structure.get_package(),
+                    data_dimensions.structure.path, 'converting data',
+                    data_dimensions.structure.name,
+                    inspect.stack()[0][3], type_, value_, traceback_,
+                    message, False)
+        else:
+            try:
+                if isinstance(data, str):
+                    # fix any scientific formatting that python can't handle
+                    data = data.replace('d', 'e')
+                return float(data)
+            except (ValueError, TypeError):
+                try:
+                    return float(PyListUtil.clean_numeric(data))
+                except (ValueError, TypeError):
+                    message = 'Data "{}" with value "{}" can ' \
+                              'not be converted to float' \
+                               '.'.format(data_dimensions.structure.
+                                          name,
+                                          data)
+                    type_, value_, traceback_ = sys.exc_info()
+                    raise MFDataException(
+                        data_dimensions.structure.get_model(),
+                        data_dimensions.structure.get_package(),
+                        data_dimensions.structure.path,
+                        'converting data',
+                        data_dimensions.structure.name,
+                        inspect.stack()[0][3], type_, value_,
+                        traceback_, message, False)
+    elif data_type == DatumType.integer:
+        if data_item is not None and data_item.numeric_index:
+            return int(PyListUtil.clean_numeric(data)) - 1
+        try:
+            return int(data)
+        except (ValueError, TypeError):
+            try:
+                return int(PyListUtil.clean_numeric(data))
+            except (ValueError, TypeError):
+                message = 'Data "{}" with value "{}" can not be ' \
+                          'converted to int' \
+                          '.'.format(data_dimensions.structure.name,
+                                     data)
+                type_, value_, traceback_ = sys.exc_info()
+                raise MFDataException(
+                    data_dimensions.structure.get_model(),
+                    data_dimensions.structure.get_package(),
+                    data_dimensions.structure.path, 'converting data',
+                    data_dimensions.structure.name,
+                    inspect.stack()[0][3], type_, value_, traceback_,
+                    message, False)
+    elif data_type == DatumType.string and data is not None:
+        if data_item is None or not data_item.preserve_case:
+            # keep strings lower case
+            return data.lower()
+    return data
+
+
+def to_string(val, data_type, sim_data, data_dim, is_cellid=False,
+              possible_cellid=False, data_item=None):
+    if data_type == DatumType.double_precision:
+        if data_item is not None and data_item.support_negative_index:
+            if val > 0:
+                return (str(int(val + 1)))
+            elif val == 0.0:
+                if struct.pack('>d', val) == \
+                        b'\x80\x00\x00\x00\x00\x00\x00\x00':
+                    # value is negative zero
+                    return (str(int(val - 1)))
+                else:
+                    # value is positive zero
+                    return (str(int(val + 1)))
+            else:
+                return (str(int(val - 1)))
+        else:
+            try:
+                abs_val = abs(val)
+            except TypeError:
+                return str(val)
+            if (abs_val > sim_data._sci_note_upper_thres or
+                    abs_val < sim_data._sci_note_lower_thres) \
+                    and abs_val != 0:
+                return sim_data.reg_format_str.format(val)
+            else:
+                return sim_data.sci_format_str.format(val)
+    elif is_cellid or (possible_cellid and isinstance(val, tuple)):
+        if len(val) > 0 and val[0] == 'none':
+            # handle case that cellid is 'none'
+            return val[0]
+        if is_cellid and \
+                data_dim.get_model_dim(None).model_name is not \
+                None:
+            model_grid = data_dim.get_model_grid()
+            cellid_size = model_grid.get_num_spatial_coordinates()
+            if len(val) != cellid_size:
+                message = 'Cellid "{}" contains {} integer(s). Expected a' \
+                          ' cellid containing {} integer(s) for grid type' \
+                          ' {}.'.format(val, len(val), cellid_size,
+                                       str(model_grid.grid_type()))
+                type_, value_, traceback_ = sys.exc_info()
+                raise MFDataException(
+                    data_dim.structure.get_model(),
+                    data_dim.structure.get_package(),
+                    data_dim.structure.path,
+                    'converting cellid to string',
+                    data_dim.structure.name, inspect.stack()[0][3],
+                    type_, value_, traceback_, message,
+                    sim_data.debug)
+
+        string_val = []
+        for item in val:
+            string_val.append(str(item + 1))
+        return ' '.join(string_val)
+    elif data_type == DatumType.integer:
+        if data_item is not None and data_item.numeric_index:
+            if isinstance(val, str):
+                return str(int(val) + 1)
+            else:
+                return str(int(val)+1)
+        return str(int(val))
+    elif data_type == DatumType.string:
+        try:
+            arr_val = val.split()
+        except AttributeError:
+            return str(val)
+        if len(arr_val) > 1:
+            # quote any string with spaces
+            string_val = "'{}'".format(val)
+            if data_item is not None and data_item.ucase:
+                return string_val.upper()
+            else:
+                return string_val
+    if data_item is not None and data_item.ucase:
+        return str(val).upper()
+    else:
+        return str(val)
+
+
+class MFComment(object):
+    """
+    Represents a variable in a MF6 input file
+
+
+    Parameters
+    ----------
+    comment : string or list
+        comment to be displayed in output file
+    path : string
+        tuple representing location in the output file
+    line_number : integer
+        line number to display comment in output file
+
+    Attributes
+    ----------
+    comment : string or list
+        comment to be displayed in output file
+    path : string
+        tuple representing location in the output file
+    line_number : integer
+        line number to display comment in output file
+
+    Methods
+    -------
+    write : (file)
+        writes the comment to file
+    add_text(additional_text)
+        adds text to the comment
+    get_file_entry(eoln_suffix=True)
+        returns the comment text in the format to write to package files
+    is_empty(include_whitespace=True)
+        checks to see if comment is just an empty string ''.  if
+        include_whitespace is set to false a string with only whitespace is
+        considered empty
+    is_comment(text, include_empty_line=False) : boolean
+        returns true if text is a comment.  an empty line is considered a
+        comment if include_empty_line is true.
+
+    See Also
+    --------
+
+    Notes
+    -----
+
+    Examples
+    --------
+
+
+    """
+    def __init__(self, comment, path, sim_data, line_number=0):
+        if not (isinstance(comment, str) or isinstance(comment, list) or
+                        comment is None):
+            raise FlopyException('Comment "{}" not valid.  Comment must be '
+                                 'of type str of list.'.format(comment))
+        self.text = comment
+        self.path = path
+        self.line_number = line_number
+        self.sim_data = sim_data
+
+    """
+    Add text to the comment string.
+
+    Parameters
+    ----------
+    additional_text: string
+        text to add
+    """
+    def add_text(self, additional_text):
+        if additional_text:
+            if isinstance(self.text, list):
+                self.text.append(additional_text)
+            else:
+                self.text = '{} {}'.format(self.text, additional_text)
+
+    """
+    Get the comment text in the format to write to package files.
+
+    Parameters
+    ----------
+    eoln_suffix: boolean
+        have comment text end with end of line character
+    Returns
+    -------
+    string : comment text
+    """
+    def get_file_entry(self, eoln_suffix=True):
+        file_entry = ''
+        if self.text and self.sim_data.comments_on:
+            if not isinstance(self.text, str) and isinstance(self.text, list):
+                file_entry = self._recursive_get(self.text)
+            else:
+                if self.text.strip():
+                    file_entry = self.text
+            if eoln_suffix:
+                file_entry = '{}\n'.format(file_entry)
+        return file_entry
+
+    def _recursive_get(self, base_list):
+        file_entry = ''
+        if base_list and self.sim_data.comments_on:
+            for item in base_list:
+                if not isinstance(item, str) and isinstance(item, list):
+                    file_entry = '{}{}'.format(file_entry,
+                                               self._recursive_get(item))
+                else:
+                    file_entry = '{} {}'.format(file_entry, item)
+        return file_entry
+
+    """
+    Write the comment text to a file.
+
+    Parameters
+    ----------
+    fd : file
+        file to write to
+    eoln_suffix: boolean
+        have comment text end with end of line character
+    """
+    def write(self, fd, eoln_suffix=True):
+        if self.text and self.sim_data.comments_on:
+            if not isinstance(self.text, str) and isinstance(self.text, list):
+                self._recursive_write(fd, self.text)
+            else:
+                if self.text.strip():
+                    fd.write(self.text)
+            if eoln_suffix:
+                fd.write('\n')
+
+    """
+    Check for comment text
+
+    Parameters
+    ----------
+    include_whitespace : boolean
+        include whitespace as text
+    Returns
+    -------
+    boolean : True if comment text exists
+    """
+    def is_empty(self, include_whitespace=True):
+        if include_whitespace:
+            if self.text():
+                return True
+            return False
+        else:
+            if self.text.strip():
+                return True
+            return False
+
+    """
+    Check text to see if it is valid comment text
+
+    Parameters
+    ----------
+    text : string
+        potential comment text
+    include_empty_line : boolean
+        allow empty line to be valid
+    Returns
+    -------
+    boolean : True if text is valid comment text
+    """
+    @staticmethod
+    def is_comment(text, include_empty_line=False):
+        if not text:
+            return include_empty_line
+        if text and isinstance(text, list):
+            # look for comment mark in first item of list
+            text_clean = text[0].strip()
+        else:
+            text_clean = text.strip()
+        if include_empty_line and not text_clean:
+            return True
+        if text_clean and (text_clean[0] == '#' or text_clean[0] == '!' or
+                           text_clean[0] == '//'):
+            return True
+        return False
+
+    # recursively writes a nested list to a file
+    def _recursive_write(self, fd, base_list):
+        if base_list:
+            for item in base_list:
+                if not isinstance(item, str) and isinstance(item, list):
+                    self._recursive_write(fd, item)
+                else:
+                    fd.write(' {}'.format(item))
 
 
 class TemplateGenerator(object):
@@ -63,17 +394,17 @@ class TemplateGenerator(object):
         return data_struct, modeldimensions.DataDimensions(package_dim,
                                                            data_struct)
 
-    def build_type_header(self, type, data=None):
-        from ..data.mfdata import DataStorageType
+    def build_type_header(self, ds_type, data=None):
+        from ..data.mfdatastorage import DataStorageType
 
-        if type == DataStorageType.internal_array:
+        if ds_type == DataStorageType.internal_array:
             if isinstance(self, ArrayTemplateGenerator):
                 return {'factor':1.0, 'iprn':1, 'data':data}
             else:
                 return None
-        elif type == DataStorageType.internal_constant:
+        elif ds_type == DataStorageType.internal_constant:
             return data
-        elif type == DataStorageType.external_file:
+        elif ds_type == DataStorageType.external_file:
             return {'filename':'', 'factor':1.0, 'iprn':1}
         return None
 
@@ -110,19 +441,18 @@ class ArrayTemplateGenerator(TemplateGenerator):
 
     def empty(self, model=None, layered=False, data_storage_type_list=None,
               default_value=None):
-        from ..data import mfdata, mfstructure
-        from ..data.mfdata import DataStorageType
+        from ..data import mfdatastorage, mfstructure
+        from ..data.mfdatastorage import DataStorageType, DataStructureType
 
         # get the expected dimensions of the data
         data_struct, data_dimensions = self._get_data_dimensions(model)
         datum_type = data_struct.get_datum_type()
         data_type = data_struct.get_datatype()
-        # build a temporary data storge object
-        data_storage = mfdata.DataStorage(
-                model.simulation_data,
-                data_dimensions,
-                mfdata.DataStorageType.internal_array,
-                mfdata.DataStructureType.recarray)
+        # build a temporary data storage object
+        data_storage = mfdatastorage.DataStorage(
+                model.simulation_data, model, data_dimensions, None,
+                DataStorageType.internal_array,
+                DataStructureType.recarray, data_path=self.path)
         dimension_list = data_storage.get_data_dimensions(None)
 
         # if layered data
@@ -179,7 +509,7 @@ class ArrayTemplateGenerator(TemplateGenerator):
 
     def _build_layer(self, data_type, data_storage_type, default_value,
                      dimension_list, all_layers=False):
-        from ..data.mfdata import DataStorageType
+        from ..data.mfdatastorage import DataStorageType
 
         # build data
         if data_storage_type == DataStorageType.internal_array:
@@ -250,16 +580,15 @@ class ListTemplateGenerator(TemplateGenerator):
 
     def empty(self, model, maxbound=None, aux_vars=None, boundnames=False,
               nseg=None, timeseries=False, stress_periods=None):
-        from ..data import mfdata, mfstructure
+        from ..data import mfdatastorage, mfstructure
 
         data_struct, data_dimensions = self._get_data_dimensions(model)
         data_type = data_struct.get_datatype()
-        # build a temporary data storge object
-        data_storage = mfdata.DataStorage(
-                model.simulation_data,
-                data_dimensions,
-                mfdata.DataStorageType.internal_array,
-                mfdata.DataStructureType.recarray)
+        # build a temporary data storage object
+        data_storage = mfdatastorage.DataStorage(
+                model.simulation_data, model, data_dimensions, None,
+                mfdatastorage.DataStorageType.internal_array,
+                mfdatastorage.DataStructureType.recarray)
 
         # build type list
         type_list = data_storage.build_type_list(nseg=nseg)
@@ -274,10 +603,10 @@ class ListTemplateGenerator(TemplateGenerator):
 
         if timeseries:
             # fix type list to make all types objects
-            for index in range(0, len(type_list)):
-                type_list[index] = (type_list[index][0], object)
+            for index, d_type in enumerate(type_list):
+                type_list[index] = (d_type[0], object)
 
-        # build rec array
+        # build recarray
         template_data = self._build_template_data(type_list)
         rec_array_data = []
         if maxbound is not None:
@@ -300,426 +629,6 @@ class ListTemplateGenerator(TemplateGenerator):
                 return template
         else:
             return rec_array
-
-
-class DatumUtil(object):
-    @ staticmethod
-    def is_int(str):
-        try:
-            int(str)
-            return True
-        except TypeError:
-            return False
-        except ValueError:
-            return False
-
-    @ staticmethod
-    def is_float(str):
-        try:
-            float(str)
-            return True
-        except TypeError:
-            return False
-        except ValueError:
-            return False
-
-
-class ArrayUtil(object):
-    """
-    Class contains miscellaneous methods to work with and compare arrays
-
-    Parameters
-    ----------
-    path : string
-        file path to read/write to
-    max_error : float
-        maximum acceptable error when doing a compare of floating point numbers
-
-    Methods
-    -------
-    is_empty_list : (current_list : list) : boolean
-        determines if an n-dimensional list is empty
-    con_convert : (data : string, data_type : type that has conversion
-                   operation) : boolean
-        returns true if data can be converted into data_type
-    max_multi_dim_list_size : (current_list : list) : boolean
-        determines the max number of items in a multi-dimensional list
-        'current_list'
-    first_item : (current_list : list) : variable
-        returns the first item in the list 'current_list'
-    next_item : (current_list : list) : variable
-        returns the next item in the list 'current_list'
-    array_comp : (first_array : list, second_array : list) : boolean
-        compares two lists, returns true if they are identical (with max_error)
-    spilt_data_line : (line : string) : list
-        splits a string apart (using split) and then cleans up the results
-        dealing with various MODFLOW input file releated delimiters.  returns
-        the delimiter type used.
-    clean_numeric : (text : string) : string
-        returns a cleaned up version of 'text' with only numeric characters
-    save_array_diff : (first_array : list, second_array : list,
-                       first_array_name : string, second_array_name : string)
-        saves lists 'first_array' and 'second_array' to files first_array_name
-        and second_array_name and then saves the difference of the two
-        arrays to 'debug_array_diff.txt'
-    save_array(filename : string, multi_array : list)
-        saves 'multi_array' to the file 'filename'
-    """
-    numeric_chars = {'0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0,
-                     '6': 0, '7': 0, '8': 0, '9': 0, '.': 0, '-': 0}
-    quote_list = {"'", '"'}
-    delimiter_list = {',': 0, '\t': 0, ' ': 0}
-    delimiter_used = None
-    line_num = 0
-    consistent_delim = False
-
-    def __init__(self, path=None, max_error=0.01):
-        self.max_error = max_error
-        if path:
-            self.path = path
-        else:
-            self.path = os.getcwd()
-
-    @ staticmethod
-    def has_one_item(current_list):
-        if not isinstance(current_list, list) and not isinstance(current_list,
-                                                                 np.ndarray):
-            return True
-        if len(current_list) != 1:
-            return False
-        if (isinstance(current_list[0], list) or
-                isinstance(current_list, np.ndarray)) and \
-                len(current_list[0] != 0):
-            return False
-        return True
-
-    @ staticmethod
-    def is_empty_list(current_list):
-        if not isinstance(current_list, list):
-            return not current_list
-
-        for item in current_list:
-            if isinstance(item, list):
-                # still in a list of lists, recurse
-                if not ArrayUtil.is_empty_list(item):
-                    return False
-            else:
-                return False
-
-        return True
-
-    @ staticmethod
-    def max_multi_dim_list_size(current_list):
-        max_length = -1
-        for item in current_list:
-            if len(item) > max_length:
-                max_length = len(item)
-        return max_length
-
-    @ staticmethod
-    def first_item(current_list):
-        if not isinstance(current_list, list):
-            return current_list
-
-        for item in current_list:
-            if isinstance(item, list):
-                # still in a list of lists, recurse
-                return ArrayUtil.first_item(item)
-            else:
-                return item
-
-    @ staticmethod
-    def next_item(current_list, new_list=True, nesting_change=0,
-                  end_of_list=True):
-        # returns the next item in a nested list along with other information:
-        # (<next item>, <end of list>, <entering new list>,
-        #  <change in nesting level>
-        if not isinstance(current_list, list) and \
-                not isinstance(current_list, np.ndarray):
-            yield (current_list, end_of_list, new_list, nesting_change)
-        else:
-            list_size = 1
-            for item in current_list:
-                if isinstance(item, list) or isinstance(current_list,
-                                                        np.ndarray):
-                    # still in a list of lists, recurse
-                    for item in ArrayUtil.next_item(item, list_size == 1,
-                                                    nesting_change + 1,
-                                                    list_size ==
-                                                    len(current_list)):
-                        yield item
-                    nesting_change = -(nesting_change + 1)
-                else:
-                    yield (item, list_size == len(current_list),
-                           list_size == 1, nesting_change)
-                    nesting_change = 0
-                list_size += 1
-
-    def array_comp(self, first_array, second_array):
-        diff = first_array - second_array
-        max = np.max(np.abs(diff))
-        if max > self.max_error:
-            return False
-        return True
-
-    @staticmethod
-    def reset_delimiter_used():
-        ArrayUtil.delimiter_used = None
-        ArrayUtil.line_num = 0
-        ArrayUtil.consistent_delim = True
-
-    @staticmethod
-    def split_data_line(line, external_file=False, delimiter_conf_length=15):
-        if ArrayUtil.line_num > delimiter_conf_length and \
-                ArrayUtil.consistent_delim:
-            # consistent delimiter has been found.  continue using that
-            # delimiter without doing further checks
-            if ArrayUtil.delimiter_used == None:
-                clean_line = line.strip().split()
-            else:
-                clean_line = line.strip().split(ArrayUtil.delimiter_used)
-        else:
-            clean_line = line.strip().split()
-            if external_file:
-                # try lots of different delimitiers for external files and use the
-                # one the breaks the data apart the most
-                max_split_size = len(clean_line)
-                max_split_type = None
-                for delimiter in ArrayUtil.delimiter_list:
-                    alt_split = line.strip().split(delimiter)
-                    if len(alt_split) > max_split_size:
-                        max_split_size = len(alt_split)
-                        max_split_type = delimiter
-                if max_split_type is not None:
-                    clean_line = line.strip().split(max_split_type)
-                    if ArrayUtil.line_num == 0:
-                        ArrayUtil.delimiter_used = max_split_type
-                    elif ArrayUtil.delimiter_used != max_split_type:
-                        ArrayUtil.consistent_delim = False
-        ArrayUtil.line_num += 1
-
-        arr_fixed_line = []
-        index = 0
-        # loop through line to fix quotes and delimiters
-        while index < len(clean_line):
-            item = clean_line[index]
-            if item and item not in ArrayUtil.delimiter_list:
-                if item and item[0] in ArrayUtil.quote_list:
-                    # starts with a quote, handle quoted text
-                    if item[-1] in ArrayUtil.quote_list:
-                        arr_fixed_line.append(item[1:-1])
-                    else:
-                        arr_fixed_line.append(item[1:])
-                        # loop until trailing quote found
-                        while index < len(clean_line):
-                            index += 1
-                            if index < len(clean_line):
-                                item = clean_line[index]
-                                if item[-1] in ArrayUtil.quote_list:
-                                    arr_fixed_line[-1] = \
-                                        '{} {}'.format(arr_fixed_line[-1],
-                                                       item[:-1])
-                                    break
-                                else:
-                                    arr_fixed_line[-1] = \
-                                        '{} {}'.format(arr_fixed_line[-1],
-                                                       item)
-                else:
-                    # no quote, just append
-                    arr_fixed_line.append(item)
-            index += 1
-
-        return arr_fixed_line
-
-    @staticmethod
-    def clean_numeric(text):
-        if isinstance(text, str):
-            # remove all non-numeric text from leading and trailing positions
-            # of text
-            if text:
-                while text and (text[0] not in ArrayUtil.numeric_chars or text[-1]
-                                not in ArrayUtil.numeric_chars):
-                    if text[0] not in ArrayUtil.numeric_chars:
-                        text = text[1:]
-                    if text and text[-1] not in ArrayUtil.numeric_chars:
-                        text = text[:-1]
-        return text
-
-    def save_array_diff(self, first_array, second_array, first_array_name,
-                        second_array_name):
-        try:
-            diff = first_array - second_array
-            self.save_array(first_array_name, first_array)
-            self.save_array(second_array_name, second_array)
-            self.save_array('debug_array_diff.txt', diff)
-        except:
-            print("An error occurred while outputting array differences.")
-            return False
-        return True
-
-    # Saves an array with up to three dimensions
-    def save_array(self, filename, multi_array):
-        file_path = os.path.join(self.path, filename)
-        with open(file_path, 'w') as outfile:
-            outfile.write('{}\n'.format(str(multi_array.shape)))
-            if len(multi_array.shape) == 4:
-                for slice in multi_array:
-                    for second_slice in slice:
-                        for third_slice in second_slice:
-                            for item in third_slice:
-                                outfile.write(' {:10.3e}'.format(item))
-                            outfile.write('\n')
-                        outfile.write('\n')
-                    outfile.write('\n')
-            elif len(multi_array.shape) == 3:
-                for slice in multi_array:
-                    np.savetxt(outfile, slice, fmt='%10.3e')
-                    outfile.write('\n')
-            else:
-                np.savetxt(outfile, multi_array, fmt='%10.3e')
-
-
-class ArrayIndexIter(object):
-    def __init__(self, array_shape):
-        self.array_shape = array_shape
-        self.current_location = []
-        self.first_item = True
-        for item in array_shape:
-            self.current_location.append(0)
-        self.current_index = len(self.current_location) - 1
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.first_item:
-            self.first_item = False
-            if len(self.current_location) > 1:
-                return tuple(self.current_location)
-            else:
-                return self.current_location[0]
-        while self.current_index >= 0:
-            location = self.current_location[self.current_index]
-            if location < self.array_shape[self.current_index] - 1:
-                self.current_location[self.current_index] += 1
-                self.current_index = len(self.current_location) - 1
-                if len(self.current_location) > 1:
-                    return tuple(self.current_location)
-                else:
-                    return self.current_location[0]
-            else:
-                self.current_location[self.current_index] = 0
-                self.current_index -= 1
-        raise StopIteration()
-
-    next = __next__  # Python 2 support
-
-
-class MultiListIter(object):
-    def __init__(self, multi_list, detailed_info=False):
-        self.multi_list = multi_list
-        self.detailed_info = detailed_info
-        self.val_iter = ArrayUtil.next_item(self.multi_list)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        next_val = next(self.val_iter)
-        if self.detailed_info:
-            return next_val
-        else:
-            return next_val[0]
-
-    next = __next__  # Python 2 support
-
-
-class ConstIter(object):
-    def __init__(self, value):
-        self.value = value
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return self.value
-
-    next = __next__  # Python 2 support
-
-
-class FileIter(object):
-    def __init__(self, file_path):
-        self.eof = False
-        try:
-            self._fd = open(file_path, 'r')
-        except:
-            self.eof = True
-        self._current_data = None
-        self._data_index = 0
-        self._next_line()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.eof:
-            raise StopIteration()
-        else:
-            while self._current_data is not None and \
-                  self._data_index >= len(self._current_data):
-                self._next_line()
-                self._data_index = 0
-                if self.eof:
-                    raise StopIteration()
-            self._data_index += 1
-            return self._current_data[self._data_index-1]
-
-    def close(self):
-        self._fd.close()
-
-    def _next_line(self):
-        if self.eof:
-            return
-        data_line = self._fd.readline()
-        if data_line is None:
-            self.eof = True
-            return
-        self._current_data = ArrayUtil.split_data_line(data_line)
-
-    next = __next__  # Python 2 support
-
-
-class NameIter(object):
-    def __init__(self, name, first_not_numbered=True):
-        self.name = name
-        self.iter_num = -1
-        self.first_not_numbered = first_not_numbered
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        self.iter_num += 1
-        if self.iter_num == 0 and self.first_not_numbered:
-            return self.name
-        else:
-            return '{}_{}'.format(self.name, self.iter_num)
-
-    next = __next__  # Python 2 support
-
-
-class PathIter(object):
-    def __init__(self, path, first_not_numbered=True):
-        self.path = path
-        self.name_iter = NameIter(path[-1], first_not_numbered)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return self.path[0:-1] + (self.name_iter.__next__(),)
-
-    next = __next__  # Python 2 support
 
 
 class MFDocString(object):

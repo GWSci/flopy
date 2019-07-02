@@ -15,6 +15,8 @@ from .mtphc import Mt3dPhc
 from .mtuzt import Mt3dUzt
 from .mtsft import Mt3dSft
 from .mtlkt import Mt3dLkt
+from ..discretization.structuredgrid import StructuredGrid
+from flopy.discretization.modeltime import ModelTime
 
 
 class Mt3dList(Package):
@@ -223,7 +225,7 @@ class Mt3dms(BaseModel):
 
         # Call constructor for parent object
         BaseModel.__init__(self, modelname, namefile_ext, exe_name, model_ws,
-                           structured=structured)
+                           structured=structured, verbose=verbose)
 
         # Set attributes
         self.version_types = {'mt3dms': 'MT3DMS', 'mt3d-usgs': 'MT3D-USGS'}
@@ -247,7 +249,7 @@ class Mt3dms(BaseModel):
         if os.path.isfile(os.path.join(self.model_ws,
                                        str(modelname + '.' + namefile_ext))):
             with open(os.path.join(self.model_ws, str(
-                                    modelname + '.' + namefile_ext))) as nm_file:
+                    modelname + '.' + namefile_ext))) as nm_file:
                 for line in nm_file:
                     if line[0:3] == 'FTL':
                         ftlfilename = line.strip().split()[2]
@@ -290,12 +292,11 @@ class Mt3dms(BaseModel):
         self.external_units = []
         self.external_binflag = []
         self.external = False
-        self.verbose = verbose
         self.load = load
         # the starting external data unit number
         self._next_ext_unit = 2000
         if external_path is not None:
-            #assert model_ws == '.', "ERROR: external cannot be used " + \
+            # assert model_ws == '.', "ERROR: external cannot be used " + \
             #                        "with model_ws"
 
             # external_path = os.path.join(model_ws, external_path)
@@ -323,13 +324,104 @@ class Mt3dms(BaseModel):
             'phc': Mt3dPhc,
             'lkt': Mt3dLkt,
             'sft': Mt3dSft,
-            'uzt': Mt3dUzt
+            'uzt2': Mt3dUzt
         }
         return
 
     def __repr__(self):
         return 'MT3DMS model'
 
+    @property
+    def modeltime(self):
+        # build model time
+        data_frame = {'perlen': self.mf.dis.perlen.array,
+                      'nstp': self.mf.dis.nstp.array,
+                      'tsmult': self.mf.dis.tsmult.array}
+        self._model_time = ModelTime(data_frame,
+                                     self.mf.dis.itmuni_dict[
+                                         self.mf.dis.itmuni],
+                                     self.dis.start_datetime, self.dis.steady)
+        return self._model_time
+
+    @property
+    def modelgrid(self):
+        if not self._mg_resync:
+            return self._modelgrid
+
+        if self.btn is not None:
+            ibound = self.btn.icbund.array
+            delc = self.btn.delc.array
+            delr = self.btn.delr.array
+            top = self.btn.htop.array
+            botm = np.subtract(top, self.btn.dz.array.cumsum(axis=0))
+        else:
+            delc = self.mf.dis.delc.array
+            delr = self.mf.dis.delr.array
+            top = self.mf.dis.top.array
+            botm = self.mf.dis.botm.array
+            if self.mf.bas6 is not None:
+                ibound = self.mf.bas6.ibound.array
+            else:
+                ibound = None
+        # build grid
+        self._modelgrid = StructuredGrid(delc=delc,
+                                         delr=delr,
+                                         top=top,
+                                         botm=botm,
+                                         idomain=ibound,
+                                         proj4=self._modelgrid.proj4,
+                                         epsg=self._modelgrid.epsg,
+                                         xoff=self._modelgrid.xoffset,
+                                         yoff=self._modelgrid.yoffset,
+                                         angrot=self._modelgrid.angrot)
+
+        # resolve offsets
+        xoff = self._modelgrid.xoffset
+        if xoff is None:
+            if self._xul is not None:
+                xoff = self._modelgrid._xul_to_xll(self._xul)
+            else:
+                xoff = self.mf._modelgrid.xoffset
+            if xoff is None:
+                # incase mf._modelgrid.xoffset is not set but mf._xul is
+                if self.mf._xul is not None:
+                    xoff = self._modelgrid._xul_to_xll(self.mf._xul)
+                else:
+                    xoff = 0.0
+        yoff = self._modelgrid.yoffset
+        if yoff is None:
+            if self._yul is not None:
+                yoff = self._modelgrid._yul_to_yll(self._yul)
+            else:
+                yoff = self.mf._modelgrid.yoffset
+            if yoff is None:
+                # incase mf._modelgrid.yoffset is not set but mf._yul is
+                if self.mf._yul is not None:
+                    yoff = self._modelgrid._yul_to_yll(self.mf._yul)
+                else:
+                    yoff = 0.0
+        proj4 = self._modelgrid.proj4
+        if proj4 is None:
+            proj4 = self.mf._modelgrid.proj4
+        epsg = self._modelgrid.epsg
+        if epsg is None:
+            epsg = self.mf._modelgrid.epsg
+        angrot = self._modelgrid.angrot
+        if angrot is None or angrot == 0.0:  # angrot normally defaulted to 0.0
+            if self.mf._modelgrid.angrot is not None:
+                angrot = self.mf._modelgrid.angrot
+            else:
+                angrot = 0.0
+
+        self._modelgrid.set_coord_info(xoff, yoff, angrot, epsg, proj4)
+
+        return self._modelgrid
+
+    @property
+    def solver_tols(self):
+        if self.gcg is not None:
+            return self.gcg.cclose, -999
+        return None
 
     @property
     def sr(self):
@@ -486,13 +578,8 @@ class Mt3dms(BaseModel):
         >>> mt.ftlfilename = 'example.ftl'
 
         """
-        # test if name file is passed with extension (i.e., is a valid file)
-        modelname_extension = None
-        if os.path.isfile(os.path.join(model_ws, f)):
-            modelname = f.rpartition('.')[0]
-            modelname_extension = f.rpartition('.')[2]
-        else:
-            modelname = f
+        modelname, ext = os.path.splitext(f)
+        modelname_extension = ext[1:]  # without '.'
 
         if verbose:
             sys.stdout.write('\nCreating new model with name: {}\n{}\n\n'.
@@ -501,18 +588,16 @@ class Mt3dms(BaseModel):
                     version=version, exe_name=exe_name,
                     verbose=verbose, model_ws=model_ws,
                     modflowmodel=modflowmodel)
-
-        files_succesfully_loaded = []
+        files_successfully_loaded = []
         files_not_loaded = []
 
         # read name file
+        namefile_path = os.path.join(mt.model_ws, f)
+        if not os.path.isfile(namefile_path):
+            raise IOError('cannot find name file: ' + str(namefile_path))
         try:
-            # namefile_path = os.path.join(mt.model_ws, mt.namefile)
-            # namefile_path = f
-            namefile_path = os.path.join(mt.model_ws, f)
-            ext_unit_dict = mfreadnam.parsenamefile(namefile_path,
-                                                    mt.mfnam_packages,
-                                                    verbose=verbose)
+            ext_unit_dict = mfreadnam.parsenamefile(
+                namefile_path, mt.mfnam_packages, verbose=verbose)
         except Exception as e:
             # print("error loading name file entries from file")
             # print(str(e))
@@ -565,12 +650,17 @@ class Mt3dms(BaseModel):
                                    ext_unit_dict=ext_unit_dict)
         except Exception as e:
             raise Exception('error loading BTN: {0}'.format(str(e)))
-        files_succesfully_loaded.append(btn.filename)
+        files_successfully_loaded.append(btn.filename)
         if mt.verbose:
             sys.stdout.write('   {:4s} package load...success\n'
                              .format(pck.name[0]))
         ext_unit_dict.pop(btn_key)
-
+        ncomp = mt.btn.ncomp
+        # reserved unit numbers for .ucn, s.ucn, .obs, .mas, .cnf
+        poss_output_units = set(list(range(201, 201+ncomp)) +
+                                list(range(301, 301+ncomp)) +
+                                list(range(401, 401+ncomp)) +
+                                list(range(601, 601+ncomp)) + [17])
         if load_only is None:
             load_only = []
             for key, item in ext_unit_dict.items():
@@ -603,7 +693,7 @@ class Mt3dms(BaseModel):
                         try:
                             pck = item.package.load(item.filename, mt,
                                                     ext_unit_dict=ext_unit_dict)
-                            files_succesfully_loaded.append(item.filename)
+                            files_successfully_loaded.append(item.filename)
                             if mt.verbose:
                                 sys.stdout.write(
                                     '   {:4s} package load...success\n'
@@ -617,7 +707,7 @@ class Mt3dms(BaseModel):
                     else:
                         pck = item.package.load(item.filename, mt,
                                                 ext_unit_dict=ext_unit_dict)
-                        files_succesfully_loaded.append(item.filename)
+                        files_successfully_loaded.append(item.filename)
                         if mt.verbose:
                             sys.stdout.write(
                                 '   {:4s} package load...success\n'
@@ -637,7 +727,14 @@ class Mt3dms(BaseModel):
                     sys.stdout.write('   {} file load...skipped\n      {}\n'
                                      .format(item.filetype,
                                              os.path.basename(item.filename)))
-                if key not in mt.pop_key_list:
+                if key in poss_output_units:
+                    # id files specified to output unit numbers and allow to
+                    # pass through
+                    mt.output_fnames.append(os.path.basename(item.filename))
+                    mt.output_units.append(key)
+                    mt.output_binflag.append("binary"
+                                             in item.filetype.lower())
+                elif key not in mt.pop_key_list:
                     mt.external_fnames.append(item.filename)
                     mt.external_units.append(key)
                     mt.external_binflag.append("binary"
@@ -649,19 +746,21 @@ class Mt3dms(BaseModel):
         for key in mt.pop_key_list:
             try:
                 mt.remove_external(unit=key)
-                ext_unit_dict.pop(key)
+                if key != btn_key:  # btn_key already popped above
+                    ext_unit_dict.pop(key)
             except:
                 if mt.verbose:
-                    sys.stdout.write('Warning: external file unit " +\
-                        "{} does not exist in ext_unit_dict.\n'.format(key))
+                    sys.stdout.write(
+                        "Warning: external file unit "
+                        "{} does not exist in ext_unit_dict.\n".format(key))
 
         # write message indicating packages that were successfully loaded
         if mt.verbose:
             print(1 * '\n')
             s = '   The following {0} packages were successfully loaded.' \
-                .format(len(files_succesfully_loaded))
+                .format(len(files_successfully_loaded))
             print(s)
-            for fname in files_succesfully_loaded:
+            for fname in files_successfully_loaded:
                 print('      ' + os.path.basename(fname))
             if len(files_not_loaded) > 0:
                 s = '   The following {0} packages were not loaded.'.format(

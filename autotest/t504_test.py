@@ -1,12 +1,12 @@
 import os
-import platform
 
 import numpy as np
 
 import flopy
 import flopy.utils.binaryfile as bf
-from flopy.mf6.data.mfdatautil import ArrayUtil
+from flopy.utils.datautil import PyListUtil
 from flopy.mf6.modflow.mfsimulation import MFSimulation
+from flopy.mf6.mfbase import VerbosityLevel
 
 try:
     import pymake
@@ -14,9 +14,6 @@ except:
     print('could not import pymake')
 
 exe_name = 'mf6'
-#exe_name = 'C:\\WrdApp\\mf6.0.1\\bin\\mf6'
-if platform.system() == 'Windows':
-    exe_name += '.exe'
 v = flopy.which(exe_name)
 
 run = True
@@ -48,14 +45,22 @@ def test001a_tharmonic():
     expected_cbc_file_a = os.path.join(expected_output_folder, 'flow15_flow_unch.cbc')
     expected_cbc_file_b = os.path.join(expected_output_folder, 'flow15_flow_adj.cbc')
 
-    array_util = ArrayUtil()
+    array_util = PyListUtil()
 
     # load simulation
-    sim = MFSimulation.load(model_name, 'mf6', exe_name, pth)
+    sim = MFSimulation.load(model_name, 'mf6', exe_name, pth,
+                            verbosity_level=0)
     sim.simulation_data.mfpath.set_sim_path(run_folder)
 
     # write simulation to new location
-    sim.write_simulation()
+    sim.write_simulation(silent=True)
+
+    model = sim.get_model(model_name)
+    model.export('{}/tharmonic.nc'.format(model.model_ws))
+    model.export('{}/tharmonic.shp'.format(model.model_ws))
+    model.dis.botm.export('{}/botm.shp'.format(model.model_ws))
+
+    mg = model.modelgrid
 
     if run:
         # run simulation
@@ -142,7 +147,7 @@ def test003_gwfs_disv():
     expected_cbc_file_a = os.path.join(expected_output_folder, 'model_unch.cbc')
     expected_cbc_file_b = os.path.join(expected_output_folder, 'model_adj.cbc')
 
-    array_util = ArrayUtil()
+    array_util = PyListUtil()
 
     # load simulation
     sim = MFSimulation.load(model_name, 'mf6', exe_name, pth)
@@ -170,11 +175,13 @@ def test003_gwfs_disv():
         budget_frf = sim.simulation_data.mfdata[(model_name, 'CBC', 'FLOW-JA-FACE')]
         assert array_util.array_comp(budget_fjf_valid, budget_frf)
 
-    # change some settings
     model = sim.get_model(model_name)
+    model.export('{}/{}.shp'.format(pth, test_ex_name))
+
+    # change some settings
     chd_head_left = model.get_package('CHD_LEFT')
     chd_left_period = chd_head_left.stress_period_data.array
-    chd_left_period[4][1] = 15.0
+    chd_left_period[0][4][1] = 15.0
 
     chd_head_right = model.get_package('CHD_RIGHT')
     chd_right_period = chd_head_right.stress_period_data
@@ -208,6 +215,7 @@ def test003_gwfs_disv():
 
     return
 
+
 def test005_advgw_tidal():
     # init paths
     test_ex_name = 'test005_advgw_tidal'
@@ -226,7 +234,20 @@ def test005_advgw_tidal():
     expected_head_file_b = os.path.join(expected_output_folder, 'AdvGW_tidal_adj.hds')
 
     # load simulation
-    sim = MFSimulation.load(model_name, 'mf6', exe_name, pth)
+    sim = MFSimulation.load(model_name, 'mf6', exe_name, pth,
+                            verbosity_level=2)
+
+    # test obs/ts package interface
+    model = sim.get_model(model_name)
+    time = model.modeltime
+    assert (time.steady_state[0] == True and time.steady_state[1] == False
+            and time.steady_state[2] == False and time.steady_state[3] == False)
+    ghb = model.get_package('ghb')
+    obs = ghb.obs
+    digits = obs.digits.get_data()
+    assert(digits == 10)
+    names = ghb.ts.time_series_namerecord.get_data()
+    assert(names[0][0] == 'tides')
 
     # make temp folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
@@ -292,7 +313,7 @@ def test006_gwf3():
     expected_cbc_file_a = os.path.join(expected_output_folder, 'flow_unch.cbc')
     expected_cbc_file_b = os.path.join(expected_output_folder, 'flow_adj.cbc')
 
-    array_util = ArrayUtil()
+    array_util = PyListUtil()
 
     # load simulation
     sim = MFSimulation.load(model_name, 'mf6', exe_name, pth)
@@ -363,6 +384,15 @@ def test006_gwf3():
     # write with "copy_external_files" turned off so external files do not get copied to new location
     sim.write_simulation(ext_file_action=flopy.mf6.mfbase.ExtFileAction.copy_none)
 
+    # store strt in an external binary file
+    model = sim.get_model()
+    ic = model.get_package('ic')
+    ic.strt.store_as_external_file('initial_heads.bin', binary=True)
+
+    strt_data = ic.strt.array
+    # update packages
+    sim.write_simulation()
+
     if run:
         # run simulation
         sim.run_simulation()
@@ -388,6 +418,8 @@ def test006_gwf3():
         assert not os.path.isfile(os.path.join(save_folder, 'flow.disu.cl12.dat'))
         assert not os.path.isfile(os.path.join(save_folder, 'flow.disu.area.dat'))
         assert not os.path.isfile(os.path.join(save_folder, 'flow.disu.hwva.dat'))
+        # confirm external binary file was created
+        assert os.path.isfile(os.path.join(save_folder, 'initial_heads.bin'))
 
         # clean up
         sim.delete_output_files()
@@ -428,7 +460,10 @@ def test045_lake1ss_table():
         # compare output to expected results
         head_file = os.path.join(os.getcwd(), expected_head_file_a)
         head_new = os.path.join(run_folder, 'lakeex1b.hds')
-        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new)
+        outfile = os.path.join(run_folder, 'headcompare_a.txt')
+        success = pymake.compare_heads(None, None, files1=head_file,
+                                       files2=head_new, outfile=outfile)
+        assert success
 
     # change some settings
     model = sim.get_model(model_name)
@@ -448,7 +483,10 @@ def test045_lake1ss_table():
         # compare output to expected results
         head_file = os.path.join(os.getcwd(), expected_head_file_b)
         head_new = os.path.join(save_folder, 'lakeex1b.hds')
-        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new)
+        outfile = os.path.join(run_folder, 'headcompare_b.txt')
+        success = pymake.compare_heads(None, None, files1=head_file,
+                                       files2=head_new, outfile=outfile)
+        assert success
 
         # clean up
         sim.delete_output_files()
@@ -504,12 +542,29 @@ def test006_2models_mvr():
         budget_obj = bf.CellBudgetFile(budget_file, precision='double')
         budget_obj.list_records()
 
+    # test getting models
+    model_dict = sim.model_dict
+    assert len(model_dict) == 2
+    for model in model_dict.values():
+        assert model.name in model_names
+    names = sim.model_names
+    assert len(names) == 2
+    for name in names:
+        assert name in model_names
+        model = sim.get_model(name)
+        assert model.model_type == 'gwf'
+    models = sim.gwf
+    assert len(models) == 2
+    for model in models:
+        assert model.name in model_names
+        assert model.model_type == 'gwf'
+
     # change some settings
     parent_model = sim.get_model(model_names[0])
     maw_pkg = parent_model.get_package('maw')
     period_data = maw_pkg.perioddata.get_data()
-    period_data[0][2] = -1.0
-    maw_pkg.perioddata.set_data(period_data, 0)
+    period_data[0][0][2] = -1.0
+    maw_pkg.perioddata.set_data(period_data[0], 0)
     well_rec_data = maw_pkg.packagedata.get_data()
     assert(well_rec_data[0][0] == 0)
 
@@ -518,6 +573,24 @@ def test006_2models_mvr():
     for index in range(0, len(exg_data)):
         exg_data[index][6] = 500.0
     exg_pkg.exchangedata.set_data(exg_data)
+
+    # test getting packages
+    pkg_dict = parent_model.package_dict
+    assert len(pkg_dict) == 6
+    pkg_names = parent_model.package_names
+    assert len(pkg_names) == 6
+    # confirm that this is a copy of the original dictionary with references
+    # to the packages
+    del pkg_dict[pkg_names[0]]
+    assert len(pkg_dict) == 5
+    pkg_dict = parent_model.package_dict
+    assert len(pkg_dict) == 6
+
+    old_val = pkg_dict['dis'].nlay.get_data()
+    pkg_dict['dis'].nlay = 22
+    pkg_dict = parent_model.package_dict
+    assert pkg_dict['dis'].nlay.get_data() == 22
+    pkg_dict['dis'].nlay = old_val
 
     # write simulation again
     sim.simulation_data.mfpath.set_sim_path(save_folder)
@@ -643,8 +716,8 @@ def test045_lake2tr():
     lak = model.get_package('lak')
     lak_period = lak.lakeperioddata
     lak_period_data = lak_period.get_data()
-    lak_period_data[2][2] = '0.05'
-    lak_period.set_data(lak_period_data, 0)
+    lak_period_data[0][2][2] = '0.05'
+    lak_period.set_data(lak_period_data[0], 0)
 
     # write simulation again
     sim.simulation_data.mfpath.set_sim_path(save_folder)
@@ -698,19 +771,19 @@ def test036_twrihfb():
     # change some settings
     hydchr = sim.simulation_data.mfdata[(model_name, 'hfb', 'period', 'stress_period_data')]
     hydchr_data = hydchr.get_data()
-    hydchr_data[2][2] = 0.000002
-    hydchr_data[3][2] = 0.000003
-    hydchr_data[4][2] = 0.0000004
-    hydchr.set_data(hydchr_data, 0)
+    hydchr_data[0][2][2] = 0.000002
+    hydchr_data[0][3][2] = 0.000003
+    hydchr_data[0][4][2] = 0.0000004
+    hydchr.set_data(hydchr_data[0], 0)
     cond = sim.simulation_data.mfdata[(model_name, 'drn', 'period', 'stress_period_data')]
     cond_data = cond.get_data()
-    for index in range(0, len(cond_data)):
-        cond_data[index][2] = 2.1
-    cond.set_data(cond_data, 0)
+    for index in range(0, len(cond_data[0])):
+        cond_data[0][index][2] = 2.1
+    cond.set_data(cond_data[0], 0)
 
     rch = sim.simulation_data.mfdata[(model_name, 'rcha', 'period', 'recharge')]
     rch_data = rch.get_data()
-    assert(rch_data[5][1] == 0.00000003)
+    assert(rch_data[0][5, 1] == 0.00000003)
 
     # write simulation again
     sim.simulation_data.mfpath.set_sim_path(save_folder)
@@ -785,13 +858,13 @@ def test027_timeseriestest():
 
 
 if __name__ == '__main__':
-    test027_timeseriestest()
-    test006_2models_mvr()
-    test036_twrihfb()
-    test045_lake2tr()
-    test001e_uzf_3lay()
-    test045_lake1ss_table()
     test001a_tharmonic()
+    test001e_uzf_3lay()
     test003_gwfs_disv()
     test005_advgw_tidal()
+    test006_2models_mvr()
     test006_gwf3()
+    test027_timeseriestest()
+    test036_twrihfb()
+    test045_lake1ss_table()
+    test045_lake2tr()

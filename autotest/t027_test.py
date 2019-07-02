@@ -1,9 +1,9 @@
 """
-test MNW2 package
+test MNW1 and MNW2 packages
 """
 import sys
-
 sys.path.insert(0, '..')
+import shutil
 import os
 import flopy
 import numpy as np
@@ -14,7 +14,7 @@ cpth = os.path.join('temp', 't027')
 if not os.path.isdir(cpth):
     os.makedirs(cpth)
 mf2005pth = os.path.join('..', 'examples', 'data', 'mnw2_examples')
-
+mnw1_path = os.path.join('..', 'examples', 'data', 'mf2005_test')
 
 def test_line_parse():
     """t027 test line_parse method in MNW2 Package class"""
@@ -50,6 +50,25 @@ def test_load():
         mnw2_2.stress_period_data[0].qdes - mnw2_3.stress_period_data[
             0].qdes).min() < 0.01
 
+def test_mnw1_load_write():
+    m = flopy.modflow.Modflow.load('mnw1.nam', model_ws=mnw1_path,
+                                   load_only=['mnw1'],
+                                   verbose=True, forgive=False)
+    assert m.has_package('MNW1')
+    assert m.mnw1.mxmnw == 120
+    for i in range(3):
+        assert len(m.mnw1.stress_period_data[i]) == 17
+        assert len(np.unique(m.mnw1.stress_period_data[i]['mnw_no'])) == 15
+        assert len(set(m.mnw1.stress_period_data[i]['label'])) == 4
+    shutil.copy(mnw1_path + '/mnw1.nam', cpth)
+    shutil.copy(mnw1_path + '/mnw1.dis', cpth)
+    shutil.copy(mnw1_path + '/mnw1.bas', cpth)
+    m.mnw1.fn_path = cpth + '/mnw1.mnw'
+    m.mnw1.write_file()
+    m2 = flopy.modflow.Modflow.load('mnw1.nam', model_ws=cpth,
+                                   load_only=['mnw1'],
+                                   verbose=True, forgive=False)
+    assert m.stress_period_data == m2.stress_period_data
 
 def test_make_package():
     """t027 test make MNW2 Package"""
@@ -89,6 +108,11 @@ def test_make_package():
                                        )
     m4.write_input()
 
+    well1 = mnw2_4.node_data[mnw2_4.node_data['wellid'] == 'well1']
+    assert isinstance(well1, np.recarray)
+    assert np.all(np.diff(well1['ztop']) < 0)
+    assert np.all(np.diff(well1['zbotm']) < 0)
+
     # make the package from the tables (k, i, j format)
     node_data = np.array(
         [(0, 3, 1, 1, 'well1', 'skin', -1, 0, 0, 0, 1.0, 2.0, 5.0, 6.2),
@@ -117,6 +141,9 @@ def test_make_package():
                                        itmp=[2, 2, -1],
                                        # reuse second per pumping for last stress period
                                        )
+    well1 = mnw2_4.node_data[mnw2_4.node_data['wellid'] == 'well1']
+    assert isinstance(well1, np.recarray)
+    assert np.all(np.diff(well1['k']) > 0)
     spd = m4.mnw2.stress_period_data[0]
     inds = spd.k, spd.i, spd.j
     assert np.array_equal(np.array(inds).transpose(),
@@ -132,6 +159,63 @@ def test_make_package():
     # verify that the two input methods produce the same results
     assert np.array_equal(mnw2_4.stress_period_data[1],
                           mnw2fromobj.stress_period_data[1])
+    # verify that loaded package is the same
+    m5 = flopy.modflow.Modflow('mnw2example', model_ws=cpth)
+    dis = flopy.modflow.ModflowDis(nrow=5, ncol=5, nlay=3, nper=3, top=10,
+                                   botm=0, model=m5)
+    mnw2_5 = flopy.modflow.ModflowMnw2.load(mnw2_4.fn_path, m5)
+    assert np.array_equal(mnw2_4.stress_period_data[1],
+                          mnw2_5.stress_period_data[1])
+
+
+def test_mnw2_create_file():
+    """
+    Test for issue #556, Mnw2 crashed if wells have
+    multiple node lengths
+    """
+    import pandas as pd
+    mf = flopy.modflow.Modflow('test_mfmnw2', exe_name='mf2005')
+    wellids = [1, 2]
+    nlayers = [2, 4]
+    stress_period_data = pd.DataFrame([[0, 1]], columns=['per', 'qdes'])
+    wells = []
+    for i in range(len(wellids)):
+        node_data = pd.DataFrame(columns=['k', 'i', 'j', 'ztop',
+                                          'zbotm', 'wellid', 'losstype',
+                                          'ppflag', 'pumploc', 'qlimit',
+                                          'pumpcap', 'qcut'])
+        for j in range(nlayers[i]):
+            node_data.loc[j, 'k'] = j
+            node_data.loc[j, 'i'] = 1
+            node_data.loc[j, 'j'] = 1
+            node_data.loc[j, 'ztop'] = 0
+            node_data.loc[j, 'zbotm'] = 0
+            node_data.loc[j, 'wellid'] = wellids[i]
+            node_data.loc[j, 'losstype'] = "SKIN"
+            node_data.loc[j, 'ppflag'] = 0
+            node_data.loc[j, 'pumploc'] = 0
+            node_data.loc[j, 'qlimit'] = 0
+            node_data.loc[j, 'pumpcap'] = 0
+            node_data.loc[j, 'qcut'] = 0
+
+        wl = flopy.modflow.mfmnw2.Mnw(wellids[i],
+                  nnodes=nlayers[i],
+                  nper=len(stress_period_data.index),
+                  node_data=node_data.to_records(index=False),
+                  stress_period_data=stress_period_data.to_records(index=False))
+
+        wells.append(wl)
+
+    mnw2 = flopy.modflow.ModflowMnw2(model=mf,
+                                     mnwmax=len(wells),
+                                     mnw=wells,
+                                     itmp=list((np.ones((len(stress_period_data.index)))
+                                                * len(wellids)).astype(int)))
+
+    if len(mnw2.node_data) != 6:
+        raise AssertionError("Node data not properly set")
+
+    mnw2.write_file("./temp/t027/ndata.mnw2")
 
 
 def test_export():
@@ -172,6 +256,8 @@ if __name__ == '__main__':
     #test_line_parse()
     #test_load()
     #test_make_package()
-    test_export()
+    #test_export()
     #test_checks()
+    test_mnw1_load_write()
+    test_mnw2_create_file()
     pass

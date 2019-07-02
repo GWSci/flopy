@@ -1,12 +1,11 @@
 import os
-import platform
 
 import numpy as np
 
 import flopy
 import flopy.utils.binaryfile as bf
-from flopy.mf6.data.mfdata import DataStorageType
-from flopy.mf6.data.mfdatautil import ArrayUtil
+from flopy.mf6.data.mfdatastorage import DataStorageType
+from flopy.utils.datautil import PyListUtil
 from flopy.mf6.mfbase import FlopyException
 from flopy.mf6.modflow.mfgwf import ModflowGwf
 from flopy.mf6.modflow.mfgwfchd import ModflowGwfchd
@@ -34,6 +33,8 @@ from flopy.mf6.modflow.mftdis import ModflowTdis
 from flopy.mf6.modflow.mfutlobs import ModflowUtlobs
 from flopy.mf6.modflow.mfutlts import ModflowUtlts
 from flopy.mf6.utils import testutils
+from flopy.mf6.mfbase import MFDataException
+
 
 try:
     import pymake
@@ -41,9 +42,6 @@ except:
     print('could not import pymake')
 
 exe_name = 'mf6'
-# exe_name = 'C:\\WrdApp\\mf6.0.1\\bin\\mf6'
-if platform.system() == 'Windows':
-    exe_name += '.exe'
 v = flopy.which(exe_name)
 
 run = True
@@ -101,7 +99,7 @@ def np001():
     tdis_package = ModflowTdis(sim, time_units='DAYS', nper=2,
                                perioddata=tdis_rc)
     # first ims file to be replaced
-    ims_package = ModflowIms(sim, pname='my_ims_file', fname='old_name.ims',
+    ims_package = ModflowIms(sim, pname='my_ims_file', filename='old_name.ims',
                              print_option='ALL', complexity='SIMPLE',
                              outer_hclose=0.00001,
                              outer_maximum=10, under_relaxation='NONE',
@@ -112,7 +110,7 @@ def np001():
                              number_orthogonalizations=5)
     # replace with real ims file
     ims_package = ModflowIms(sim, pname='my_ims_file',
-                             fname='{}.ims'.format(test_ex_name),
+                             filename='{}.ims'.format(test_ex_name),
                              print_option='ALL', complexity='SIMPLE',
                              outer_hclose=0.00001,
                              outer_maximum=50, under_relaxation='NONE',
@@ -134,18 +132,22 @@ def np001():
                                           nrow=1, ncol=1, delr=100.0,
                                           delc=100.0,
                                           top=60.0, botm=50.0,
-                                          fname='{}.dis'.format(model_name),
+                                          filename='{}.dis'.format(model_name),
                                           pname='mydispkg')
     # specifying dis package twice with the same name should automatically
     # remove the old dis package
+    top = {'filename': 'top.bin', 'data': 100.0, 'binary': True}
+    botm = {'filename': 'botm.bin', 'data': 50.0, 'binary': True}
     dis_package = flopy.mf6.ModflowGwfdis(model, length_units='FEET', nlay=1,
                                           nrow=1, ncol=10, delr=500.0,
                                           delc=500.0,
-                                          top=100.0, botm=50.0,
-                                          fname='{}.dis'.format(model_name),
+                                          top=top, botm=botm,
+                                          filename='{}.dis'.format(model_name),
                                           pname='mydispkg')
+    top_data = dis_package.top.get_data()
+    assert top_data[0,0] == 100.0
     ic_package = flopy.mf6.ModflowGwfic(model, strt='initial_heads.txt',
-                                        fname='{}.ic'.format(model_name))
+                                        filename='{}.ic'.format(model_name))
     npf_package = ModflowGwfnpf(model, pname='npf_1', save_flows=True,
                                 alternative_cell_averaging='logarithmic',
                                 icelltype=1, k=5.0)
@@ -178,26 +180,46 @@ def np001():
     sto_package = ModflowGwfsto(model, save_flows=True, iconvert=1,
                                 ss=0.000001, sy=0.15)
 
+    # test saving a binary file with list data
+    well_spd = {0: {'filename': 'wel0.bin', 'binary': True,
+                    'data': [((0, 0, 4), -2000.0), ((0, 0, 7), -2.0)]}}
     wel_package = ModflowGwfwel(model, print_input=True, print_flows=True,
                                 save_flows=True, maxbound=2,
-                                stress_period_data=[((0, 0, 4), -2000.0),
-                                                    ((0, 0, 7), -2.0)])
+                                stress_period_data=well_spd)
     wel_package.stress_period_data.add_transient_key(1)
     wel_package.stress_period_data.set_data(
         {1: {'filename': 'wel.txt', 'factor': 1.0}})
 
+    # test getting data from a binary file
+    well_data = wel_package.stress_period_data.get_data(0)
+    assert well_data[0][0] == (0, 0, 4)
+    assert well_data[0][1] == -2000.0
+
     drn_package = ModflowGwfdrn(model, print_input=True, print_flows=True,
                                 save_flows=True, maxbound=1,
-                                stress_period_data=[((0, 0, 0), 80, 60.0)])
+                                timeseries=[(0.0, 60.0), (100000.0, 60.0)],
+                                stress_period_data=[((0, 0, 0), 80, 'drn_1')])
+    drn_package.ts.time_series_namerecord = 'drn_1'
+    drn_package.ts.interpolation_methodrecord = 'linearend'
 
+    riv_spd = {0: {'filename': 'riv.txt', 'data':[((0, 0, 9), 110, 90.0,
+      100.0, 1.0, 2.0, 3.0)]}}
     riv_package = ModflowGwfriv(model, print_input=True, print_flows=True,
                                 save_flows=True, maxbound=1,
-                                stress_period_data=[
-                                    ((0, 0, 9), 110, 90.0, 100.0)])
+                                auxiliary=['var1', 'var2', 'var3'],
+                                stress_period_data=riv_spd)
+    riv_data = riv_package.stress_period_data.get_data(0)
+    assert riv_data[0][0] == (0, 0, 9)
+    assert riv_data[0][1] == 110
+    assert riv_data[0][2] == 90.0
+    assert riv_data[0][3] == 100.0
+    assert riv_data[0][4] == 1.0
+    assert riv_data[0][5] == 2.0
+    assert riv_data[0][6] == 3.0
 
     # verify package look-up
     pkgs = model.get_package()
-    assert (len(pkgs) == 8)
+    assert (len(pkgs) == 9)
     pkg = model.get_package('oc')
     assert isinstance(pkg, ModflowGwfoc)
     pkg = sim.get_package('tdis')
@@ -213,7 +235,7 @@ def np001():
 
 
     # verify external file contents
-    array_util = ArrayUtil()
+    array_util = PyListUtil()
     ic_data = ic_package.strt
     ic_array = ic_data.get_data()
     assert array_util.array_comp(ic_array, [[[100.0, 100.0, 100.0, 100.0,
@@ -227,28 +249,41 @@ def np001():
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # get expected results
-    budget_file = os.path.join(os.getcwd(), expected_cbc_file)
-    budget_obj = bf.CellBudgetFile(budget_file, precision='double')
-    budget_frf_valid = np.array(
-        budget_obj.get_data(text='FLOW-JA-FACE', full3D=True))
+        # get expected results
+        budget_file = os.path.join(os.getcwd(), expected_cbc_file)
+        budget_obj = bf.CellBudgetFile(budget_file, precision='double')
+        budget_frf_valid = np.array(
+            budget_obj.get_data(text='FLOW-JA-FACE', full3D=True))
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'np001_mod.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'np001_mod.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    budget_frf = sim.simulation_data.mfdata[
-        (model_name, 'CBC', 'FLOW-JA-FACE')]
-    assert array_util.array_comp(budget_frf_valid, budget_frf)
+        budget_frf = sim.simulation_data.mfdata[
+            (model_name, 'CBC', 'FLOW-JA-FACE')]
+        assert array_util.array_comp(budget_frf_valid, budget_frf)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
+    try:
+        error_occurred = False
+        well_spd = {0: {'filename': 'wel0.bin', 'binary': True,
+                        'data': [((0, 0, 4), -2000.0), ((0, 0, 7), -2.0)]}}
+        wel_package = ModflowGwfwel(model, boundnames=True,
+                                    print_input=True, print_flows=True,
+                                    save_flows=True, maxbound=2,
+                                    stress_period_data=well_spd)
+    except MFDataException:
+        error_occurred = True
+
+    assert error_occurred
     return
 
 
@@ -300,13 +335,14 @@ def np002():
     dis_package = ModflowGwfdis(model, length_units='FEET', nlay=1, nrow=1,
                                 ncol=10, delr=500.0, delc=500.0,
                                 top=top, botm=botm,
-                                fname='{}.dis'.format(model_name))
+                                filename='{}.dis'.format(model_name))
     ic_vals = [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
                100.0]
     ic_package = ModflowGwfic(model, strt=ic_vals,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
     ic_package.strt.store_as_external_file('initial_heads.txt')
     npf_package = ModflowGwfnpf(model, save_flows=True, icelltype=1, k=100.0)
+    npf_package.k.store_as_external_file('k.bin', binary=True)
     oc_package = ModflowGwfoc(model, budget_filerecord=[('np002_mod.cbc',)],
                               head_filerecord=[('np002_mod.hds',)],
                               saverecord=[('HEAD', 'ALL'), ('BUDGET', 'ALL')],
@@ -342,6 +378,11 @@ def np002():
         # run simulation
         sim.run_simulation()
 
+        sim2 = MFSimulation.load(sim_ws=run_folder)
+        model = sim2.get_model(model_name)
+        npf_package = model.get_package('npf')
+        k = npf_package.k.array
+
         # get expected results
         budget_file = os.path.join(os.getcwd(), expected_cbc_file)
         budget_obj = bf.CellBudgetFile(budget_file, precision='double')
@@ -355,12 +396,12 @@ def np002():
         assert pymake.compare_heads(None, None, files1=head_file,
                                     files2=head_new, outfile=outfile)
 
-        array_util = ArrayUtil()
+        array_util = PyListUtil()
         budget_frf = sim.simulation_data.mfdata[
             (model_name, 'CBC', 'FLOW-JA-FACE')]
         assert array_util.array_comp(budget_frf_valid, budget_frf)
 
-        # verify external file was written correctly
+        # verify external text file was written correctly
         ext_file_path = os.path.join(run_folder, 'initial_heads.txt')
         fd = open(ext_file_path, 'r')
         line = fd.readline()
@@ -409,9 +450,12 @@ def test021_twri():
     dis_package = flopy.mf6.ModflowGwfdis(model, nlay=3, nrow=15, ncol=15,
                                           delr=5000.0, delc=5000.0,
                                           top=200.0, botm=[-200, -300, -450],
-                                          fname='{}.dis'.format(model_name))
-    ic_package = ModflowGwfic(model, strt=0.0,
-                              fname='{}.ic'.format(model_name))
+                                          filename='{}.dis'.format(model_name))
+    strt = [{'filename': 'strt.txt', 'factor': 1.0, 'data': 0.0},
+            {'filename': 'strt2.bin', 'factor': 1.0, 'data': 1.0,
+             'binary': 'True'}, 2.0]
+    ic_package = ModflowGwfic(model, strt=strt,
+                              filename='{}.ic'.format(model_name))
     npf_package = ModflowGwfnpf(model, save_flows=True, perched=True,
                                 cvoptions='dewatered',
                                 icelltype=[1, 0, 0], k=[0.001, 0.0001, 0.0002],
@@ -431,6 +475,9 @@ def test021_twri():
                                 stress_period_data=stress_period_data)
 
     # build stress_period_data for drn package
+    conc = np.ones((15, 15), dtype=np.float) * 35.
+    auxdata = {0: [6, conc]}
+
     stress_period_data = []
     drn_heads = [0.0, 0.0, 10.0, 20.0, 30.0, 50.0, 70.0, 90.0, 100.0]
     for col, head in zip(range(1, 10), drn_heads):
@@ -439,7 +486,11 @@ def test021_twri():
                                 save_flows=True, maxbound=9,
                                 stress_period_data=stress_period_data)
     rch_package = ModflowGwfrcha(model, readasarrays=True, fixed_cell=True,
-                                 recharge={0: 0.00000003})
+                                 recharge={0: 0.00000003},
+                                 auxiliary=[('iface', 'conc')], aux=auxdata)
+
+    aux = rch_package.aux.get_data()
+
 
     stress_period_data = []
     layers = [2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -459,6 +510,14 @@ def test021_twri():
 
     # run simulation
     sim.run_simulation()
+
+    sim2 = MFSimulation.load(sim_ws=run_folder)
+    model2 = sim2.get_model()
+    ic2 = model2.get_package('ic')
+    strt2 = ic2.strt.get_data()
+    assert(strt2[0,0,0] == 0.0)
+    assert(strt2[1,0,0] == 1.0)
+    assert(strt2[2,0,0] == 2.0)
 
     # compare output to expected results
     head_file = os.path.join(os.getcwd(), expected_head_file)
@@ -516,9 +575,9 @@ def test005_advgw_tidal():
                                 delc=500.0,
                                 top=50.0, botm=[5.0, -10.0, {'factor': 1.0,
                                                              'data': bot_data}],
-                                fname='{}.dis'.format(model_name))
+                                filename='{}.dis'.format(model_name))
     ic_package = ModflowGwfic(model, strt=50.0,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
     npf_package = ModflowGwfnpf(model, save_flows=True, icelltype=[1, 0, 0],
                                 k=[5.0, 0.1, 4.0],
                                 k33=[0.5, 0.005, 0.1])
@@ -578,42 +637,31 @@ def test005_advgw_tidal():
     stress_period_data[1] = period_two[0]
     stress_period_data[2] = period_three[0]
     stress_period_data[3] = period_four[0]
+    # well ts package
+    timeseries =   [(0.0, 0.0, 0.0, 0.0),
+                   (1.0, -200.0, 0.0, -100.0),
+                   (11.0, -1800.0, -500.0, -200.0),
+                   (21.0, -200.0, -400.0, -300.0),
+                   (31.0, 0.0, -600.0, -400.0)]
+    ts_dict = {'filename': 'well-rates.ts', 'timeseries': timeseries,
+               'time_series_namerecord': [('well_1_rate', 'well_2_rate',
+                                           'well_3_rate')],
+               'interpolation_methodrecord': [('stepwise', 'stepwise',
+                                               'stepwise')]}
+    # test removing package with child packages
     wel_package = ModflowGwfwel(model, print_input=True, print_flows=True,
                                 auxiliary=[('var1', 'var2', 'var3')],
                                 maxbound=5,
                                 stress_period_data=stress_period_data,
                                 boundnames=True, save_flows=True,
-                                ts_filerecord='well-rates.ts')
-    # well ts package
-    ts_recarray = [(0.0, 0.0, 0.0, 0.0),
-                   (1.0, -200.0, 0.0, -100.0),
-                   (11.0, -1800.0, -500.0, -200.0),
-                   (21.0, -200.0, -400.0, -300.0),
-                   (31.0, 0.0, -600.0, -400.0)]
-    well_ts_package = ModflowUtlts(model, fname='well-rates.ts',
-                                   parent_file=wel_package,
-                                   timeseries=ts_recarray,
-                                   time_series_namerecord=[('well_1_rate',
-                                                            'well_2_rate',
-                                                            'well_3_rate')],
-                                   interpolation_methodrecord=[
-                                       ('stepwise', 'stepwise', 'stepwise')])
-    # test removing package with child packages
+                                timeseries=ts_dict)
     wel_package.remove()
     wel_package = ModflowGwfwel(model, print_input=True, print_flows=True,
                                 auxiliary=[('var1', 'var2', 'var3')],
                                 maxbound=5,
                                 stress_period_data=stress_period_data,
                                 boundnames=True, save_flows=True,
-                                ts_filerecord='well-rates.ts')
-    well_ts_package = ModflowUtlts(model, fname='well-rates.ts',
-                                   parent_file=wel_package,
-                                   timeseries=ts_recarray,
-                                   time_series_namerecord=[('well_1_rate',
-                                                            'well_2_rate',
-                                                            'well_3_rate')],
-                                   interpolation_methodrecord=[
-                                       ('stepwise', 'stepwise', 'stepwise')])
+                                timeseries=ts_dict)
 
     # test empty
     evt_period = ModflowGwfevt.stress_period_data.empty(model, 150, nseg=3)
@@ -625,6 +673,7 @@ def test005_advgw_tidal():
                                 save_flows=True, maxbound=150,
                                 nseg=3, stress_period_data=evt_period)
 
+    # build ghb
     ghb_period = {}
     ghb_period_array = []
     for layer, cond in zip(range(1, 3), [15.0, 1500.0]):
@@ -632,41 +681,30 @@ def test005_advgw_tidal():
             ghb_period_array.append(
                 ((layer, row, 9), 'tides', cond, 'Estuary-L2'))
     ghb_period[0] = ghb_period_array
-    ghb_package = ModflowGwfghb(model, print_input=True, print_flows=True,
-                                save_flows=True, boundnames=True,
-                                ts_filerecord='tides.ts',
-                                obs_filerecord='AdvGW_tidal.ghb.obs',
-                                maxbound=30, stress_period_data=ghb_period)
+
+    # build ts ghb
     ts_recarray = []
     fd = open(os.path.join(pth, 'tides.txt'), 'r')
     for line in fd:
         line_list = line.strip().split(',')
         ts_recarray.append((float(line_list[0]), float(line_list[1])))
-    ghb_ts_package = ModflowUtlts(model, fname='tides.ts',
-                                  parent_file=ghb_package,
-                                  timeseries=ts_recarray,
-                                  time_series_namerecord='tides',
-                                  interpolation_methodrecord='linear')
-    obs_recarray = {'ghb_obs.csv': [('ghb-2-6-10', 'GHB', (1, 5, 9)),
+    ts_package_dict = {'filename':'tides.ts',
+                       'timeseries':ts_recarray,
+                       'time_series_namerecord':'tides',
+                       'interpolation_methodrecord':'linear'}
+
+    obs_dict = {('ghb_obs.csv', 'binary'): [('ghb-2-6-10', 'GHB', (1, 5, 9)),
                                     ('ghb-3-6-10', 'GHB', (2, 5, 9))],
                     'ghb_flows.csv': [('Estuary2', 'GHB', 'Estuary-L2'),
-                                      ('Estuary3', 'GHB', 'Estuary-L3')]}
-    ghb_obs_package = ModflowUtlobs(model, fname='AdvGW_tidal.ghb.obs',
-                                    parent_file=ghb_package,
-                                    digits=10, print_input=True,
-                                    continuous=obs_recarray)
+                                      ('Estuary3', 'GHB', 'Estuary-L3')],
+                    'filename': 'AdvGW_tidal.ghb.obs', 'digits': 10,
+                    'print_input': True}
 
-    obs_recarray = {'head_obs.csv': [('h1_13_8', 'HEAD', (2, 12, 7))],
-                    'intercell_flow_obs1.csv': [
-                        ('ICF1_1.0', 'FLOW-JA-FACE', (0, 4, 5), (0, 5, 5))],
-                    'head-hydrographs.csv': [('h3-13-9', 'HEAD', (2, 12, 8)),
-                                             ('h3-12-8', 'HEAD', (2, 11, 7)),
-                                             ('h1-4-3', 'HEAD', (0, 3, 2)),
-                                             ('h1-12-3', 'HEAD', (0, 11, 2)),
-                                             ('h1-13-9', 'HEAD', (0, 12, 8))]}
-    obs_package = ModflowUtlobs(model, fname='AdvGW_tidal.obs', digits=10,
-                                print_input=True,
-                                continuous=obs_recarray)
+    ghb_package = ModflowGwfghb(model, print_input=True, print_flows=True,
+                                save_flows=True, boundnames=True,
+                                timeseries=ts_package_dict,
+                                observations=obs_dict,
+                                maxbound=30, stress_period_data=ghb_period)
 
     riv_period = {}
     riv_period_array = [((0, 2, 0), 'river_stage_1', 1001.0, 35.9, None),
@@ -693,24 +731,16 @@ def test005_advgw_tidal():
                         ((0, 6, 8), 'river_stage_2', 1009.0, 36.1),
                         ((0, 6, 9), 'river_stage_2', 1010.0, 36.0)]
     riv_period[0] = riv_period_array
-    riv_package = ModflowGwfriv(model, print_input=True, print_flows=True,
-                                save_flows='AsvGW_tidal.cbc',
-                                boundnames=True,
-                                ts_filerecord='river_stages.ts',
-                                maxbound=20, stress_period_data=riv_period,
-                                obs_filerecord='AdvGW_tidal.riv.obs')
-    ts_recarray = [(0.0, 40.0, 41.0), (1.0, 41.0, 41.5), (2.0, 43.0, 42.0),
-                   (3.0, 45.0, 42.8), (4.0, 44.0, 43.0),
-                   (6.0, 43.0, 43.1), (9.0, 42.0, 42.4), (11.0, 41.0, 41.5),
-                   (31.0, 40.0, 41.0)]
-    riv_ts_package = ModflowUtlts(model, fname='river_stages.ts',
-                                  parent_file=riv_package,
-                                  timeseries=ts_recarray,
-                                  time_series_namerecord=[('river_stage_1',
-                                                           'river_stage_2')],
-                                  interpolation_methodrecord=[
-                                      ('linear', 'stepwise')])
-    obs_recarray = {'riv_obs.csv': [('rv1-3-1', 'RIV', (0, 2, 0)),
+    # riv time series
+    ts_data = [(0.0, 40.0, 41.0), (1.0, 41.0, 41.5), (2.0, 43.0, 42.0),
+               (3.0, 45.0, 42.8), (4.0, 44.0, 43.0),
+               (6.0, 43.0, 43.1), (9.0, 42.0, 42.4), (11.0, 41.0, 41.5),
+               (31.0, 40.0, 41.0)]
+    ts_dict = {'filename': 'river_stages.ts', 'timeseries': ts_data,
+               'time_series_namerecord': [('river_stage_1', 'river_stage_2')],
+               'interpolation_methodrecord': [('linear', 'stepwise')]}
+    # riv obs
+    obs_dict = {'riv_obs.csv': [('rv1-3-1', 'RIV', (0, 2, 0)),
                                     ('rv1-4-2', 'RIV', (0, 3, 1)),
                                     ('rv1-5-3', 'RIV', (0, 4, 2)),
                                     ('rv1-5-4', 'RIV', (0, 4, 3)),
@@ -726,11 +756,16 @@ def test005_advgw_tidal():
                                        ('riv1-5-3', 'RIV', (0, 4, 2))],
                     'riv_flowsB.csv': [('riv2-10-1', 'RIV', (0, 9, 0)),
                                        ('riv-2-9-2', 'RIV', (0, 8, 1)),
-                                       ('riv2-8-3', 'RIV', (0, 7, 2))]}
-    riv_obs_package = ModflowUtlobs(model, fname='AdvGW_tidal.riv.obs',
-                                    parent_file=riv_package,
-                                    digits=10, print_input=True,
-                                    continuous=obs_recarray)
+                                       ('riv2-8-3', 'RIV', (0, 7, 2))],
+                'filename': 'AdvGW_tidal.riv.obs', 'digits': 10,
+                'print_input': True}
+
+    riv_package = ModflowGwfriv(model, print_input=True, print_flows=True,
+                                save_flows=True,
+                                boundnames=True,
+                                timeseries=ts_dict,
+                                maxbound=20, stress_period_data=riv_period,
+                                observations=obs_dict)
 
     rch1_period = {}
     rch1_period_array = []
@@ -756,21 +791,19 @@ def test005_advgw_tidal():
                 bnd = None
             rch1_period_array.append(((0, row, col), 'rch_1', mult, bnd))
     rch1_period[0] = rch1_period_array
-    rch1_package = ModflowGwfrch(model, fname='AdvGW_tidal_1.rch',
+    rch1_package = ModflowGwfrch(model, filename='AdvGW_tidal_1.rch',
                                  pname='rch_1', fixed_cell=True,
                                  auxiliary='MULTIPLIER',
                                  auxmultname='MULTIPLIER',
                                  print_input=True, print_flows=True,
                                  save_flows=True, boundnames=True,
-                                 ts_filerecord='recharge_rates_1.ts',
                                  maxbound=84, stress_period_data=rch1_period)
-    ts_recarray = [(0.0, 0.0015), (1.0, 0.0010), (11.0, 0.0015),
-                   (21.0, 0.0025), (31.0, 0.0015)]
-    rch1_ts_package = ModflowUtlts(model, fname='recharge_rates_1.ts',
-                                   parent_file=rch1_package,
-                                   timeseries=ts_recarray,
-                                   time_series_namerecord='rch_1',
-                                   interpolation_methodrecord='stepwise')
+    ts_data = [(0.0, 0.0015), (1.0, 0.0010), (11.0, 0.0015),
+               (21.0, 0.0025), (31.0, 0.0015)]
+    rch1_package.ts.initialize(timeseries=ts_data,
+                               filename='recharge_rates_1.ts',
+                               time_series_namerecord='rch_1',
+                               interpolation_methodrecord='stepwise')
 
     rch2_period = {}
     rch2_period_array = [((0, 0, 2), 'rch_2', 0.5), ((0, 0, 3), 'rch_2', 1.0),
@@ -787,21 +820,19 @@ def test005_advgw_tidal():
                          ((0, 2, 7), 'rch_2', 0.5),
                          ((0, 3, 5), 'rch_2', 0.5), ((0, 3, 6), 'rch_2', 0.5)]
     rch2_period[0] = rch2_period_array
-    rch2_package = ModflowGwfrch(model, fname='AdvGW_tidal_2.rch',
+    rch2_package = ModflowGwfrch(model, filename='AdvGW_tidal_2.rch',
                                  pname='rch_2', fixed_cell=True,
                                  auxiliary='MULTIPLIER',
                                  auxmultname='MULTIPLIER',
                                  print_input=True, print_flows=True,
                                  save_flows=True,
-                                 ts_filerecord='recharge_rates_2.ts',
                                  maxbound=20, stress_period_data=rch2_period)
-    ts_recarray = [(0.0, 0.0016), (1.0, 0.0018), (11.0, 0.0019),
+    ts_data = [(0.0, 0.0016), (1.0, 0.0018), (11.0, 0.0019),
                    (21.0, 0.0016), (31.0, 0.0018)]
-    rch2_ts_package = ModflowUtlts(model, fname='recharge_rates_2.ts',
-                                   parent_file=rch2_package,
-                                   timeseries=ts_recarray,
-                                   time_series_namerecord='rch_2',
-                                   interpolation_methodrecord='linear')
+    rch2_package.ts.initialize(timeseries=ts_data,
+                               filename='recharge_rates_2.ts',
+                               time_series_namerecord='rch_2',
+                               interpolation_methodrecord='linear')
 
     rch3_period = {}
     rch3_period_array = []
@@ -819,24 +850,22 @@ def test005_advgw_tidal():
                 mult = 1.0
             rch3_period_array.append(((0, row, col), 'rch_3', mult))
     rch3_period[0] = rch3_period_array
-    rch3_package = ModflowGwfrch(model, fname='AdvGW_tidal_3.rch',
+    rch3_package = ModflowGwfrch(model, filename='AdvGW_tidal_3.rch',
                                  pname='rch_3', fixed_cell=True,
                                  auxiliary='MULTIPLIER',
                                  auxmultname='MULTIPLIER',
                                  print_input=True, print_flows=True,
                                  save_flows=True,
-                                 ts_filerecord='recharge_rates_3.ts',
                                  maxbound=54,
                                  stress_period_data=rch3_period)
-    ts_recarray = [(0.0, 0.0017), (1.0, 0.0020), (11.0, 0.0017),
+    ts_data = [(0.0, 0.0017), (1.0, 0.0020), (11.0, 0.0017),
                    (21.0, 0.0018), (31.0, 0.0020)]
-    rch3_ts_package = ModflowUtlts(model, fname='recharge_rates_3.ts',
-                                   parent_file=rch3_package,
-                                   timeseries=ts_recarray,
-                                   time_series_namerecord='rch_3',
-                                   interpolation_methodrecord='linear')
+    rch3_package.ts.initialize(timeseries=ts_data,
+                               filename='recharge_rates_3.ts',
+                               time_series_namerecord='rch_3',
+                               interpolation_methodrecord='linear')
 
-    # charnge folder to save simulation
+    # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
 
     # write simulation to new location
@@ -893,9 +922,9 @@ def test004_bcfss():
     dis_package = ModflowGwfdis(model, nlay=2, nrow=10, ncol=15, delr=500.0,
                                 delc=500.0,
                                 top=150.0, botm=[50.0, -50.0],
-                                fname='{}.dis'.format(model_name))
+                                filename='{}.dis'.format(model_name))
     ic_package = ModflowGwfic(model, strt=0.0,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
     wetdry_data = []
     for row in range(0, 10):
         if row == 2 or row == 7:
@@ -917,11 +946,18 @@ def test004_bcfss():
                                                 'DIGITS', 2, 'GENERAL')],
                               saverecord=[('HEAD', 'ALL'), ('BUDGET', 'ALL')],
                               printrecord=[('HEAD', 'ALL'), ('BUDGET', 'ALL')])
-
+    aux = {0: [[50.0], [1.3]], 1: [[200.0], [1.5]]}
+    # aux = {0: [[100.0], [2.3]]}
     rch_package = ModflowGwfrcha(model, readasarrays=True, save_flows=True,
                                  auxiliary=[('var1', 'var2')],
-                                 recharge={0: 0.004}, aux={
-            0: [[100.0], [2.3]]})  # *** test if aux works ***
+                                 recharge={0: 0.004}, aux=aux)  # *** test if aux works ***
+
+    # aux tests
+    aux_out = rch_package.aux.get_data()
+    assert(aux_out[0][0][0,0] == 50.)
+    assert(aux_out[0][1][0,0] == 1.3)
+    assert(aux_out[1][0][0,0] == 200.0)
+    assert(aux_out[1][1][0,0] == 1.5)
 
     riv_period = {}
     riv_period_array = []
@@ -939,7 +975,7 @@ def test004_bcfss():
                                 save_flows=True,
                                 auxiliary=[('var1', 'var2', 'var3')],
                                 maxbound=2,
-                                stress_period_data=wel_period)  # , obs_filerecord='bcf2ss-well.obs')
+                                stress_period_data=wel_period)
 
     # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
@@ -948,17 +984,18 @@ def test004_bcfss():
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'bcf2ss.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'bcf2ss.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
     return
 
@@ -998,9 +1035,9 @@ def test035_fhb():
     dis_package = ModflowGwfdis(model, length_units='UNDEFINED', nlay=1,
                                 nrow=3, ncol=10, delr=1000.0,
                                 delc=1000.0, top=50.0, botm=-200.0,
-                                fname='{}.dis'.format(model_name))
+                                filename='{}.dis'.format(model_name))
     ic_package = ModflowGwfic(model, strt=0.0,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
     npf_package = ModflowGwfnpf(model, perched=True, icelltype=0, k=20.0,
                                 k33=1.0)
     oc_package = ModflowGwfoc(model, head_filerecord='fhb2015_fhb.hds',
@@ -1013,50 +1050,48 @@ def test035_fhb():
                                   2: [('HEAD', 'ALL'), ('BUDGET', 'ALL')]})
     sto_package = ModflowGwfsto(model, storagecoefficient=True, iconvert=0,
                                 ss=0.01, sy=0.0)
-
+    time = model.modeltime
+    assert (time.steady_state[0] == False and time.steady_state[1] == False
+            and time.steady_state[2] == False)
     wel_period = {0: [((0, 1, 0), 'flow')]}
     wel_package = ModflowGwfwel(model, print_input=True, print_flows=True,
                                 save_flows=True,
-                                ts_filerecord='fhb_flow.ts',
                                 maxbound=1, stress_period_data=wel_period)
     well_ts = [(0.0, 2000.0), (307.0, 6000.0), (791.0, 5000.0),
                (1000.0, 9000.0)]
-    well_ts_package = ModflowUtlts(model, fname='fhb_flow.ts',
-                                   parent_file=wel_package,
-                                   timeseries=well_ts,
-                                   time_series_namerecord='flow',
-                                   interpolation_methodrecord='linear')
+    wel_package.ts.initialize(filename='fhb_flow.ts', timeseries=well_ts,
+                              time_series_namerecord='flow',
+                              interpolation_methodrecord='linear')
 
     chd_period = {
         0: [((0, 0, 9), 'head'), ((0, 1, 9), 'head'), ((0, 2, 9), 'head')]}
     chd_package = ModflowGwfchd(model, print_input=True, print_flows=True,
-                                save_flows=True, ts_filerecord='fhb_head.ts',
-                                maxbound=3, stress_period_data=chd_period)
+                                save_flows=True, maxbound=3,
+                                stress_period_data=chd_period)
     chd_ts = [(0.0, 0.0), (307.0, 1.0), (791.0, 5.0), (1000.0, 2.0)]
-    chd_ts_package = ModflowUtlts(model, fname='fhb_head.ts',
-                                  parent_file=chd_package,
-                                  timeseries=chd_ts,
-                                  time_series_namerecord='head',
-                                  interpolation_methodrecord='linearend')
+    chd_package.ts.initialize(filename='fhb_head.ts', timeseries=chd_ts,
+                              time_series_namerecord='head',
+                              interpolation_methodrecord='linearend')
 
-    # charnge folder to save simulation
+    # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
 
     # write simulation to new location
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'fhb2015_fhb.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'fhb2015_fhb.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
     return
 
@@ -1097,7 +1132,7 @@ def test006_gwf3_disv():
     disv_package = ModflowGwfdisv(model, ncpl=121, nlay=1, nvert=148, top=0.0,
                                   botm=-100.0, idomain=1,
                                   vertices=vertices, cell2d=c2drecarray,
-                                  fname='{}.disv'.format(model_name))
+                                  filename='{}.disv'.format(model_name))
     strt_list = [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0,
                  0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1106,9 +1141,13 @@ def test006_gwf3_disv():
                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  0]
     ic_package = ModflowGwfic(model, strt=strt_list,
-                              fname='{}.ic'.format(model_name))
-    npf_package = ModflowGwfnpf(model, save_flows=True, icelltype=0, k=1.0,
+                              filename='{}.ic'.format(model_name))
+    k = {'filename': 'k.bin', 'factor': 1.0, 'data': 1.0, 'binary': 'True'}
+    npf_package = ModflowGwfnpf(model, save_flows=True, icelltype=0, k=k,
                                 k33=1.0)
+    k_data = npf_package.k.get_data()
+    assert(k_data[0,0] == 1.0)
+
     oc_package = ModflowGwfoc(model, budget_filerecord='flow.cbc',
                               head_filerecord='flow.hds',
                               saverecord=[('HEAD', 'ALL'), ('BUDGET', 'ALL')],
@@ -1162,24 +1201,30 @@ def test006_gwf3_disv():
                                 numgnc=24, numalphaj=1,
                                 gncdata=gncrecarray)
 
-    # charnge folder to save simulation
+    # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
 
     # write simulation to new location
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'flow.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'flow.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # export to netcdf - temporarily disabled
+        #model.export(os.path.join(run_folder, "test006_gwf3.nc"))
+        # export to shape file
+        model.export(os.path.join(run_folder, "test006_gwf3.shp"))
+
+        # clean up
+        sim.delete_output_files()
 
     return
 
@@ -1229,11 +1274,11 @@ def test006_2models_gnc():
     dis_package_1 = ModflowGwfdis(model_1, length_units='METERS', nlay=1,
                                   nrow=7, ncol=7, idomain=idom,
                                   delr=100.0, delc=100.0, top=0.0, botm=-100.0,
-                                  fname='{}.dis'.format(model_name_1))
+                                  filename='{}.dis'.format(model_name_1))
     dis_package_2 = ModflowGwfdis(model_2, length_units='METERS', nlay=1,
                                   nrow=9, ncol=9, delr=33.33,
                                   delc=33.33, top=0.0, botm=-100.0,
-                                  fname='{}.dis'.format(model_name_2))
+                                  filename='{}.dis'.format(model_name_2))
 
     strt_list = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0,
                  1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0,
@@ -1243,9 +1288,9 @@ def test006_2models_gnc():
                  1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0,
                  1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, ]
     ic_package_1 = ModflowGwfic(model_1, strt=strt_list,
-                                fname='{}.ic'.format(model_name_1))
+                                filename='{}.ic'.format(model_name_1))
     ic_package_2 = ModflowGwfic(model_2, strt=1.0,
-                                fname='{}.ic'.format(model_name_2))
+                                filename='{}.ic'.format(model_name_2))
     npf_package_1 = ModflowGwfnpf(model_1, save_flows=True, perched=True,
                                   icelltype=0, k=1.0, k33=1.0)
     npf_package_2 = ModflowGwfnpf(model_2, save_flows=True, perched=True,
@@ -1288,6 +1333,13 @@ def test006_2models_gnc():
                                 gncdata=gncrecarray)
 
     exgrecarray = testutils.read_exchangedata(os.path.join(pth, 'exg.txt'))
+
+    # build obs dictionary
+    gwf_obs = {('gwfgwf_obs.csv'): [('gwf-1-3-2_1-1-1', 'flow-ja-face',
+                                     (0, 2, 1), (0, 0, 0)),
+                                    ('gwf-1-3-2_1-2-1', 'flow-ja-face',
+                                     (0, 2, 1), (0, 1, 0))]}
+
     # test exg delete
     newexgrecarray = exgrecarray[10:]
     exg_package = ModflowGwfgwf(sim, print_input=True, print_flows=True,
@@ -1303,7 +1355,7 @@ def test006_2models_gnc():
                                 gnc_filerecord='test006_2models_gnc.gnc',
                                 nexg=36, exchangedata=exgrecarray,
                                 exgtype='gwf6-gwf6', exgmnamea=model_name_1,
-                                exgmnameb=model_name_2)
+                                exgmnameb=model_name_2, observations=gwf_obs)
 
     # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
@@ -1312,24 +1364,25 @@ def test006_2models_gnc():
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file_1)
-    head_new = os.path.join(run_folder, 'model1.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file_1)
+        head_new = os.path.join(run_folder, 'model1.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file_2)
-    head_new = os.path.join(run_folder, 'model2.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file_2)
+        head_new = os.path.join(run_folder, 'model2.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
     return
 
@@ -1370,9 +1423,9 @@ def test050_circle_island():
                                   top=0.0, botm=[-20.0, -40.0],
                                   idomain=1, vertices=vertices,
                                   cell2d=c2drecarray,
-                                  fname='{}.disv'.format(model_name))
+                                  filename='{}.disv'.format(model_name))
     ic_package = ModflowGwfic(model, strt=0.0,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
     npf_package = ModflowGwfnpf(model, save_flows=True, icelltype=0, k=10.0,
                                 k33=0.2)
     oc_package = ModflowGwfoc(model, budget_filerecord='ci.output.cbc',
@@ -1386,8 +1439,8 @@ def test050_circle_island():
                                 stress_period_data=stress_period_data)
 
     rch_data = ['OPEN/CLOSE', 'rech.dat', 'FACTOR', 1.0, 'IPRN', 0]
-    rch_package = ModflowGwfrcha(model, readasarrays=True, save_flows=True,
-                                 recharge=rch_data)
+    rch_package = ModflowGwfrcha(model, readasarrays=True,
+                                 save_flows=True, recharge=rch_data)
 
     # change folder to save simulation
     sim.simulation_data.mfpath.set_sim_path(run_folder)
@@ -1396,17 +1449,18 @@ def test050_circle_island():
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'ci.output.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'ci.output.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
     return
 
@@ -1431,7 +1485,7 @@ def test028_sfr():
     sim.name_file.continue_.set_data(True)
     tdis_rc = [(1577889000, 50, 1.1), (1577889000, 50, 1.1)]
     tdis_package = ModflowTdis(sim, time_units='SECONDS', nper=2,
-                               perioddata=tdis_rc, fname='simulation.tdis')
+                               perioddata=tdis_rc, filename='simulation.tdis')
     model = ModflowGwf(sim, modelname=model_name,
                        model_nam_file='{}.nam'.format(model_name))
     model.name_file.save_flows.set_data(True)
@@ -1448,7 +1502,7 @@ def test028_sfr():
                              inner_maximum=100, linear_acceleration='CG',
                              scaling_method='NONE', reordering_method='NONE',
                              relaxation_factor=0.99,
-                             fname='model.ims')
+                             filename='model.ims')
     sim.register_ims_package(ims_package, [model.name])
     top = testutils.read_std_array(os.path.join(pth, 'top.txt'), 'float')
     botm = testutils.read_std_array(os.path.join(pth, 'botm.txt'), 'float')
@@ -1456,11 +1510,11 @@ def test028_sfr():
     dis_package = ModflowGwfdis(model, length_units='FEET', nlay=1, nrow=15,
                                 ncol=10, delr=5000.0, delc=5000.0,
                                 top=top, botm=botm, idomain=idomain,
-                                fname='{}.dis'.format(model_name))
+                                filename='{}.dis'.format(model_name))
     strt = testutils.read_std_array(os.path.join(pth, 'strt.txt'), 'float')
     strt_int = ['internal', 'factor', 1.0, 'iprn', 0, strt]
     ic_package = ModflowGwfic(model, strt=strt_int,
-                              fname='{}.ic'.format(model_name))
+                              filename='{}.ic'.format(model_name))
 
     k_vals = testutils.read_std_array(os.path.join(pth, 'k.txt'), 'float')
     k = ['internal', 'factor', 3.000E-03, 'iprn', 0, k_vals]
@@ -1480,15 +1534,22 @@ def test028_sfr():
 
     surf = testutils.read_std_array(os.path.join(pth, 'surface.txt'), 'float')
     surf_data = ['internal', 'factor', 1.0, 'iprn', -1, surf]
-    evt_package = ModflowGwfevta(model, readasarrays=True,
-                                 obs_filerecord='test1tr.evt.obs',
-                                 surface=surf_data, rate=9.5E-08, depth=15.0,
-                                 fname='test1tr.evt')
-    obs_data = testutils.read_obs(os.path.join(pth, 'evt_obs.txt'))
-    obs_recarray = {'test1tr.evt.csv': obs_data}
-    evt_obs_package = ModflowUtlobs(model, fname='test1tr.evt.obs',
-                                    parent_file=evt_package,
-                                    print_input=True, continuous=obs_recarray)
+
+    # build time array series
+    tas = {0.0: 9.5E-08, 6.0E09: 9.5E-08,
+           'filename': 'test028_sfr.evt.tas',
+           'time_series_namerecord': 'evtarray_1',
+           'interpolation_methodrecord': 'LINEAR'}
+
+    evt_package = ModflowGwfevta(model, readasarrays=True, timearrayseries=tas,
+                                 surface=surf_data, depth=15.0,
+                                 rate='TIMEARRAYSERIES evtarray_1',
+                                 filename='test1tr.evt')
+    # attach obs package to evt
+    obs_dict = {'test028_sfr.evt.csv': [('obs-1', 'EVT', (0, 1, 5)),
+                                        ('obs-2', 'EVT', (0, 2, 3))]}
+    evt_package.obs.initialize(filename='test028_sfr.evt.obs', print_input=True,
+                               continuous=obs_dict)
 
     stress_period_data = {
         0: [((0, 12, 0), 988.0, 0.038), ((0, 13, 8), 1045.0, 0.038)]}
@@ -1502,7 +1563,7 @@ def test028_sfr():
     rch_data[0]['factor'] = 5.000E-10
     rch_data[0]['iprn'] = -1
     rch_package = ModflowGwfrcha(model, readasarrays=True, recharge=rch_data,
-                                 fname='test1tr.rch')
+                                 filename='test1tr.rch')
 
     sfr_rec = testutils.read_sfr_rec(os.path.join(pth, 'sfr_rec.txt'), 3)
     reach_con_rec = testutils.read_reach_con_rec(
@@ -1539,7 +1600,6 @@ def test028_sfr():
     reach_con_rec = testutils.read_reach_con_rec(
         os.path.join(pth, 'sfr_reach_con_rec.txt'))
     sfr_package = ModflowGwfsfr(model, unit_conversion=1.486,
-                                obs_filerecord='test1tr.sfr.obs',
                                 stage_filerecord='test1tr.sfr.stage.bin',
                                 budget_filerecord='test1tr.sfr.cbc',
                                 nreaches=36, packagedata=sfr_rec,
@@ -1550,13 +1610,11 @@ def test028_sfr():
     obs_data_1 = testutils.read_obs(os.path.join(pth, 'sfr_obs_1.txt'))
     obs_data_2 = testutils.read_obs(os.path.join(pth, 'sfr_obs_2.txt'))
     obs_data_3 = testutils.read_obs(os.path.join(pth, 'sfr_obs_3.txt'))
-    obs_recarray = {'test1tr.sfr.csv': obs_data_1,
+    obs_data = {'test1tr.sfr.csv': obs_data_1,
                     'test1tr.sfr.qaq.csv': obs_data_2,
                     'test1tr.sfr.flow.csv': obs_data_3}
-    rch_obs_package = ModflowUtlobs(model, fname='test1tr.sfr.obs',
-                                    parent_file=sfr_package,
-                                    digits=10, print_input=True,
-                                    continuous=obs_recarray)
+    sfr_package.obs.initialize(filename='test1tr.sfr.obs', digits=10,
+                               print_input=True, continuous=obs_data)
 
     wells = testutils.read_wells(os.path.join(pth, 'well.txt'))
     wel_package = ModflowGwfwel(model, boundnames=True, maxbound=10,
@@ -1566,23 +1624,23 @@ def test028_sfr():
     sim.write_simulation()
 
     # run simulation
-    sim.run_simulation()
+    if run:
+        sim.run_simulation()
 
-    # compare output to expected results
-    head_file = os.path.join(os.getcwd(), expected_head_file)
-    head_new = os.path.join(run_folder, 'test1tr.hds')
-    outfile = os.path.join(run_folder, 'head_compare.dat')
-    assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
-                                outfile=outfile)
+        # compare output to expected results
+        head_file = os.path.join(os.getcwd(), expected_head_file)
+        head_new = os.path.join(run_folder, 'test1tr.hds')
+        outfile = os.path.join(run_folder, 'head_compare.dat')
+        assert pymake.compare_heads(None, None, files1=head_file, files2=head_new,
+                                    outfile=outfile)
 
-    # clean up
-    sim.delete_output_files()
+        # clean up
+        sim.delete_output_files()
 
     return
 
 
 if __name__ == '__main__':
-    test028_sfr()
     np001()
     np002()
     test004_bcfss()
@@ -1590,5 +1648,6 @@ if __name__ == '__main__':
     test006_2models_gnc()
     test006_gwf3_disv()
     test021_twri()
+    test028_sfr()
     test035_fhb()
     test050_circle_island()
