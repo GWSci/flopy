@@ -139,7 +139,7 @@ class NetCdf(object):
     def __init__(self, output_filename, model, time_values=None,
                  z_positive='up',
                  verbose=None, prj=None,
-                 logger=None, forgive=False):
+                 logger=None, forgive=False, shape3d=None):
 
         assert output_filename.lower().endswith(".nc")
         if verbose is None:
@@ -167,7 +167,10 @@ class NetCdf(object):
 
         # wittw struct/unstruct
         #self.shape = (grd.num_layers(), grd.num_rows(), grd.num_columns())
-        self.shape = (grd.num_cells(),)
+        if shape3d is None:
+            self.shape = (grd.num_cells(),)
+        else:
+            self.shape = shape3d
 
         try:
             import dateutil.parser

@@ -15,6 +15,7 @@ from ..mfmodel import MFModel
 from . import netcdf
 from . import shapefile_utils
 import numpy.ma as ma
+import pandas as pd
 
 
 NC_PRECISION_TYPE = {np.float32: "f4", np.int: "i4", np.int64: "i4",
@@ -147,6 +148,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
         if t in out_obj.recordarray["totim"]:
             try:
                 if text:
+                    print('gettiung', t, text)
                     a = out_obj.get_data(totim=t, full3D=True, text=text)
                     if isinstance(a, list):
                         a = a[0]
@@ -226,6 +228,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
             raise Exception(estr)
 
     try:
+        print("WIITW shp", array.shape, var.shape)
         var[:] = array
     except Exception as e:
         estr = "error setting array to variable {0}:\n{1}".format(
@@ -236,7 +239,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
             raise Exception(estr)
 
 
-def output_helper(f, ml, oudic, **kwargs):
+def output_helper(f, ml, oudic, shape3d=None, **kwargs):
     """export model outputs using the model spatial reference
     info.
     Parameters
@@ -252,9 +255,11 @@ def output_helper(f, ml, oudic, **kwargs):
         casts down double precision to single precision for netCDF files
 
     """
+
     assert isinstance(ml, MFModel)
     grd = ml.dimensions.get_model_grid()
-    shape3d = grd.num_cells(),
+    if shape3d is None:
+        shape3d = grd.num_cells(),
     assert len(oudic.keys()) > 0
     logger = kwargs.pop("logger", None)
     stride = kwargs.pop("stride", 1)
@@ -267,13 +272,18 @@ def output_helper(f, ml, oudic, **kwargs):
     # this sucks!  need to round the totims in each output file instance so
     # that they will line up
     for key, out in oudic.items():
-        times = [float("{0:15.6f}".format(t)) for t in
-                 out.recordarray["totim"]]
-        out.recordarray["totim"] = times
+        if not isinstance(out, pd.DataFrame):
+            times = [float("{0:15.6f}".format(t)) for t in
+                     out.recordarray["totim"]]
+            out.recordarray["totim"] = times
 
     times = []
     for filename, df in oudic.items():
-        [times.append(t) for t in df.recordarray["totim"] if t not in times]
+        if isinstance(df, pd.DataFrame):
+            i = df.index.unique(level='totim')
+            [times.append(t) for t in i.values if t not in times]
+        else:
+            [times.append(t) for t in df.recordarray["totim"] if t not in times]
     assert len(times) > 0
     times.sort()
 
@@ -283,9 +293,10 @@ def output_helper(f, ml, oudic, **kwargs):
     for t in times:
         keep = True
         for filename, df in oudic.items():
-            if t not in df.recordarray["totim"]:
-                keep = False
-                break
+            if not isinstance(df, pd.DataFrame):
+                if t not in df.recordarray["totim"]:
+                    keep = False
+                    break
         if keep:
             common_times.append(t)
         else:
@@ -303,7 +314,7 @@ def output_helper(f, ml, oudic, **kwargs):
     times = [t for t in common_times[::stride]]
     if isinstance(f, str) and f.lower().endswith(".nc"):
         f = netcdf.NetCdf(f, ml, time_values=times, logger=logger,
-                   forgive=forgive)
+                          forgive=forgive, shape3d=shape3d)
     elif isinstance(f, netcdf.NetCdf):
         otimes = list(f.nc.variables["time"][:])
         assert otimes == times
@@ -333,6 +344,19 @@ def output_helper(f, ml, oudic, **kwargs):
                                         out_obj.text.decode(), logger=logger,
                                         mask_vals=mask_vals,
                                         mask_array3d=mask_array3d)
+
+            elif isinstance(out_obj, zbobj):
+                #for text in out_obj.textlist:
+                # loop over vars
+                # put all vars in array where node equiv zone
+                print("ZBOBJ")
+                for text in out_obj.textlist:
+                    _add_output_nc_variable(f, times, shape3d, out_obj,
+                                            "zonebudget", logger=logger,
+                                            text=text,
+                                            mask_vals=mask_vals,
+                                            mask_array3d=mask_array3d)
+                pass
 
             elif isinstance(out_obj, FormattedHeadFile):
                 _add_output_nc_variable(f, times, shape3d, out_obj,
@@ -955,3 +979,28 @@ def util2d_helper(f, u2d, **kwargs):
     else:
         raise NotImplementedError("unrecognized export argument:{0}".format(f))
 
+
+class zbobj(object):
+    """
+    quick class for spoofing mf file object methods
+    with zb dataframe
+    """
+    def __init__(self, filename):
+        df = pd.read_csv(filename, index_col=[0,3])
+        self.df = df
+        self.recordarray = {}
+        self.recordarray["totim"] = df.index.unique(level='totim').values
+        self.textlist = []
+        for text in self.df.columns:
+            if text != "kstp" and text != "kper":
+                self.textlist.append(text.encode())
+        self.zones = self.df.index.unique(level='zone').values
+        self.nzones = len(self.zones)
+
+    def get_data(self, totim=None, full3D=True, text=None):
+        a = np.zeros((self.nzones))
+        for zone in self.zones:
+            print('zone', zone, 'text', text.decode())
+            a[zone-1] = self.df.loc[(totim, zone)][text.decode()]
+        print("GD", a.shape)
+        return a
