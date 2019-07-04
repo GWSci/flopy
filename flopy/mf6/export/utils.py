@@ -148,7 +148,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
         if t in out_obj.recordarray["totim"]:
             try:
                 if text:
-                    print('gettiung', t, text)
+                    # print('gettiung', t, text)
                     a = out_obj.get_data(totim=t, full3D=True, text=text)
                     if isinstance(a, list):
                         a = a[0]
@@ -228,7 +228,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
             raise Exception(estr)
 
     try:
-        print("WIITW shp", array.shape, var.shape)
+        # print("WIITW shp", array.shape, var.shape)
         var[:] = array
     except Exception as e:
         estr = "error setting array to variable {0}:\n{1}".format(
@@ -349,7 +349,7 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                 #for text in out_obj.textlist:
                 # loop over vars
                 # put all vars in array where node equiv zone
-                print("ZBOBJ")
+                # print("ZBOBJ")
                 for text in out_obj.textlist:
                     _add_output_nc_variable(f, times, shape3d, out_obj,
                                             "zonebudget", logger=logger,
@@ -372,7 +372,7 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                     #     shape3d = out_obj.get_data(text=text)[0].flatten().shape
                     # else:
                     #     shape3d = grd.num_cells(),
-                    print(text, type(text))
+                    # print(text, type(text))
                     if b"FLOW-JA-FACE" in text:
                         pass
                     else:
@@ -432,7 +432,7 @@ def model_helper(f, ml, **kwargs):
 
 
 def package_helper(f, pak, **kwargs):
-    print("WITTW PAKHELP")
+    # print("WITTW PAKHELP")
     assert isinstance(pak, MFPackage)
     if isinstance(f, str) and f.lower().endswith(".nc"):
         f = netcdf.NetCdf(f, pak._model_or_sim)
@@ -449,7 +449,7 @@ def package_helper(f, pak, **kwargs):
         if 'start_datetime' in attrs:
             attrs.remove('start_datetime')
         for attr in attrs:
-            print("WITTW ", attr)
+            # print("WITTW ", attr)
             if '__' in attr:
                 continue
             a = pak.__getattribute__(attr)
@@ -465,12 +465,12 @@ def package_helper(f, pak, **kwargs):
             elif isinstance(a, Transient2d):
                 f = transient2d_helper(f, a, **kwargs)
             elif isinstance(a, MfList):
-                print("WITTW 408 MFLIST")
+                # print("WITTW 408 MFLIST")
                 # if a.has_data():
                 #     a.package_name = pak.package_name
                 #     f = mflist_helper(f, a, **kwargs)
             elif isinstance(a, list):
-                print("WITTW LIST")
+                # print("WITTW LIST")
                 for v in a:
                     if isinstance(v, Util3d):
                         f = util3d_helper(f, v, **kwargs)
@@ -1000,7 +1000,7 @@ class zbobj(object):
     def get_data(self, totim=None, full3D=True, text=None):
         a = np.zeros((self.nzones))
         for zone in self.zones:
-            print('zone', zone, 'text', text.decode())
+            # print('zone', zone, 'text', text.decode())
             a[zone-1] = self.df.loc[(totim, zone)][text.decode()]
-        print("GD", a.shape)
+        # print("GD", a.shape)
         return a
