@@ -163,6 +163,7 @@ class NetCdf(object):
         if prj is not None:
             self.mg.prj = prj
 
+
         grd = model.dimensions.get_model_grid()
 
         # wittw struct/unstruct
@@ -193,6 +194,7 @@ class NetCdf(object):
                 'Warning: model has no coordinate reference system specified. '
                 'Using default proj4 string: {}'.format(proj4_str))
         self.proj4_str = proj4_str
+        self.grid_crs = "EPSG:27700"
         self.grid_units = dis.length_units.get_data()
         self.z_positive = z_positive
         assert self.grid_units in ["feet", "meters"], \
@@ -630,7 +632,7 @@ class NetCdf(object):
             from pyproj import Proj, transform
         except Exception as e:
             raise Exception("NetCdf error importing pyproj module:\n" + str(e))
-
+        # print('WITTTTTW ------', self.proj4_str)
         proj4_str = self.proj4_str
 
         if "epsg" in proj4_str.lower() and "init" not in proj4_str.lower():
