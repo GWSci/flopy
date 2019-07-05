@@ -183,7 +183,7 @@ class NetCdf(object):
         dis = model.get_package("DIS")
         self.start_datetime = dateutil.parser.parse(
             tdis.start_date_time.get_data().upper())
-        print ("WITTW start", self.start_datetime)
+        # print ("WITTW start", self.start_datetime)
         self.logger.warn("start datetime:{0}".format(str(self.start_datetime)))
 
         proj4_str = self.model.modelgrid.proj4
@@ -980,7 +980,7 @@ class NetCdf(object):
         # build up the chuck sizes
         chunks = []
         for dimension in dimensions:
-            print (dimension, dimensions)
+            # print (dimension, dimensions)
             assert self.nc.dimensions.get(dimension) is not None, \
                 "netcdf.create_variable() dimension not found:" + dimension
             chunk = self.chunks[dimension]

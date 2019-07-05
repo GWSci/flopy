@@ -339,7 +339,7 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                                         mask_array3d=mask_array3d)
 
             elif isinstance(out_obj, HeadFile):
-                print ('WITTW is head ---------', times)
+                # print ('WITTW is head ---------', times)
                 _add_output_nc_variable(f, times, shape3d, out_obj,
                                         out_obj.text.decode(), logger=logger,
                                         mask_vals=mask_vals,
@@ -365,7 +365,7 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                                         mask_array3d=mask_array3d)
 
             elif isinstance(out_obj, CellBudgetFile):
-                print ('WITTW is CBB ---------', times)
+                # print ('WITTW is CBB ---------', times)
                 var_name = "cell_by_cell_flow"
                 for text in out_obj.textlist:
                     # if "FLOW-JA-FACE" in text:
@@ -376,7 +376,7 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                     if b"FLOW-JA-FACE" in text:
                         pass
                     else:
-                        print ("WITTW ", text, shape3d)
+                        # print ("WITTW ", text, shape3d)
                         _add_output_nc_variable(f, times, shape3d, out_obj,
                                                 var_name, logger=logger, text=text,
                                                 mask_vals=mask_vals,
@@ -466,9 +466,9 @@ def package_helper(f, pak, **kwargs):
                 f = transient2d_helper(f, a, **kwargs)
             elif isinstance(a, MfList):
                 # print("WITTW 408 MFLIST")
-                # if a.has_data():
-                #     a.package_name = pak.package_name
-                #     f = mflist_helper(f, a, **kwargs)
+                if a.has_data():
+                    a.package_name = pak.package_name
+                    f = mflist_helper(f, a, **kwargs)
             elif isinstance(a, list):
                 # print("WITTW LIST")
                 for v in a:
@@ -593,7 +593,7 @@ def mflist_helper(f, mfl, **kwargs):
 
         # for name, array in m4d.items():
         for name, array in mfl.masked_4D_arrays_itr():
-            print ("WITTW util 532", base_name + '_' + name)
+            # print ("WITTW util 532", base_name + '_' + name)
             var_name = base_name + '_' + name
             if isinstance(f, dict):
                 f[var_name] = array
