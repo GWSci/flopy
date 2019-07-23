@@ -792,9 +792,9 @@ class CellBudgetFile(object):
                 header2[name] = temp[name]
             if int(header2['imeth']) == 6:
                 header2['modelnam'] = binaryread(self.file, str, charlen=16)
-                header2['paknam'] = binaryread(self.file, str, charlen=16)
                 header2['modelnam2'] = binaryread(self.file, str, charlen=16)
                 header2['paknam2'] = binaryread(self.file, str, charlen=16)
+                header2['paknam'] = binaryread(self.file, str, charlen=16)
         else:
             header2 = np.array([(0, 0., 0., 0., '', '', '', '')],
                                dtype=self.header2_dtype)
