@@ -986,7 +986,7 @@ class zbobj(object):
     with zb dataframe
     """
     def __init__(self, filename):
-        df = pd.read_csv(filename, index_col=[0,3])
+        df = pd.read_csv(filename, index_col=[0, 3])
         self.df = df
         self.recordarray = {}
         self.recordarray["totim"] = df.index.unique(level='totim').values
@@ -1004,3 +1004,21 @@ class zbobj(object):
             a[zone-1] = self.df.loc[(totim, zone)][text.decode()]
         # print("GD", a.shape)
         return a
+
+
+class apobj(object):
+    """
+    quick class for spoofing mf file object methods
+    with acreetion profile dataframe
+    """
+    def __init__(self, filename):
+        df = pd.read_csv(filename, index_col=[0])
+        self.df = df
+        self.recordarray = {}
+        self.recordarray["totim"] = df.index.unique(level='time').values
+        self.textlist = []
+        s = set([x.split("_")[0] for x in df.columns])
+        for text in s:
+            self.textlist.append(text.encode())
+        self.profiles = list(s)
+        self.nprofiles = len(self.profiles)
