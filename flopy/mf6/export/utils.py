@@ -2,6 +2,8 @@ from __future__ import print_function
 import json
 import os
 import numpy as np
+import collections as coll
+
 from ...utils import Util2d, Util3d, Transient2d, \
     HeadFile, CellBudgetFile, UcnFile, FormattedHeadFile
 
@@ -148,7 +150,6 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
         if t in out_obj.recordarray["totim"]:
             try:
                 if text:
-                    # print('gettiung', t, text)
                     a = out_obj.get_data(totim=t, full3D=True, text=text)
                     if isinstance(a, list):
                         a = a[0]
@@ -357,6 +358,14 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                                             mask_vals=mask_vals,
                                             mask_array3d=mask_array3d)
                 pass
+
+            elif isinstance(out_obj, apobj):
+                for text in out_obj.profiles.keys():
+                    _add_output_nc_variable(f, times, shape3d, out_obj,
+                                            "accretion", logger=logger,
+                                            text=text.encode(),
+                                            mask_vals=mask_vals,
+                                            mask_array3d=mask_array3d)
 
             elif isinstance(out_obj, FormattedHeadFile):
                 _add_output_nc_variable(f, times, shape3d, out_obj,
@@ -1000,9 +1009,7 @@ class zbobj(object):
     def get_data(self, totim=None, full3D=True, text=None):
         a = np.zeros((self.nzones))
         for zone in self.zones:
-            # print('zone', zone, 'text', text.decode())
             a[zone-1] = self.df.loc[(totim, zone)][text.decode()]
-        # print("GD", a.shape)
         return a
 
 
@@ -1017,8 +1024,12 @@ class apobj(object):
         self.recordarray = {}
         self.recordarray["totim"] = df.index.unique(level='time').values
         self.textlist = []
-        s = set([x.split("_")[0] for x in df.columns])
-        for text in s:
+        s = [x.split("_")[0] for x in df.columns]
+        for text in df.columns:
             self.textlist.append(text.encode())
-        self.profiles = list(s)
-        self.nprofiles = len(self.profiles)
+        self.profiles = coll.Counter(s)
+
+    def get_data(self, totim=None, full3D=True, text=None):
+
+        return np.array(self.df.loc[totim].filter(regex=(text.decode()
+                                                         + ".*")))
