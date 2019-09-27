@@ -2,7 +2,7 @@ from __future__ import print_function
 import json
 import os
 import numpy as np
-import collections as coll
+from collections import Counter, OrderedDict
 
 from ...utils import Util2d, Util3d, Transient2d, \
     HeadFile, CellBudgetFile, UcnFile, FormattedHeadFile
@@ -28,6 +28,25 @@ with open(path + '/longnames.json') as f:
     NC_LONG_NAMES = json.load(f)
 with open(path + '/unitsformat.json') as f:
     NC_UNITS_FORMAT = json.load(f)
+
+
+# class OrderedCounter(Counter, OrderedDict):
+#     'Counter that remembers the order elements are first encountered'
+
+#     def __repr__(self):
+#         return '%s(%r)' % (self.__class__.__name__, OrderedDict(self))
+
+#     def __reduce__(self):
+#         return self.__class__, (OrderedDict(self),)
+
+class OrderedCounter(Counter, dict):
+    'Counter that remembers the order elements are first encountered'
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, dict(self))
+
+    def __reduce__(self):
+        return self.__class__, (dict(self),)
+
 
 
 def get_var_array_dict(m):
@@ -135,14 +154,14 @@ def ensemble_helper(inputs_filename, outputs_filename, models, add_reals=True,
 
 def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
                             text='',
-                            mask_vals=[], mask_array3d=None):
+                            mask_vals=[], mask_array3d=None, dims=['node']):
+
     if logger:
         logger.log("creating array for {0}".format(
             var_name))
 
     # array = np.zeros((len(times), shape3d[0], shape3d[1], shape3d[2]),
     #                  dtype=np.float32)
-
     array = np.zeros((len(times), shape3d[0]), dtype=np.float32)
     
     array[:] = np.NaN
@@ -195,7 +214,6 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
     mn = np.min(array[array != netcdf.FILLVALUE])
     # array[np.isnan(array)] = netcdf.FILLVALUE
 
-    
     if isinstance(f, dict):
         if text:
             var_name = text.decode().strip().lower()
@@ -214,12 +232,15 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
     attribs["coordinates"] = "time node_number"
     attribs["min"] = mn
     attribs["max"] = mx
+
+    dims = ['time'] + dims
+
     if units is not None:
         attribs["units"] = units
     try:
         var = f.create_variable(var_name, attribs,
                                 precision_str=precision_str,
-                                dimensions=("time", "node"))
+                                dimensions=tuple(dims))
     except Exception as e:
         estr = "error creating variable {0}:\n{1}".format(
             var_name, str(e))
@@ -229,7 +250,6 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
             raise Exception(estr)
 
     try:
-        # print("WIITW shp", array.shape, var.shape)
         var[:] = array
     except Exception as e:
         estr = "error setting array to variable {0}:\n{1}".format(
@@ -313,9 +333,20 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                   " output files and are being skipped:\n" + \
                   "{0}".format(skipped_times))
     times = [t for t in common_times[::stride]]
+    dims=['node']
     if isinstance(f, str) and f.lower().endswith(".nc"):
+        if 'ap' in oudic:
+            dims = []
+            oudic['ap'].dimdic = {}
+            lst = [""] + list(range(2, 1000))
+            for ii, (text, lenap) in enumerate(oudic['ap'].profiles.items()):
+                d = "node" + str(lst[ii])
+                dims.append(d)
+                oudic['ap'].dimdic[text] = d
+
         f = netcdf.NetCdf(f, ml, time_values=times, logger=logger,
-                          forgive=forgive, shape3d=shape3d)
+                          forgive=forgive, shape3d=shape3d, dims=dims)
+
     elif isinstance(f, netcdf.NetCdf):
         otimes = list(f.nc.variables["time"][:])
         assert otimes == times
@@ -352,7 +383,8 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                 # put all vars in array where node equiv zone
                 # print("ZBOBJ")
                 for text in out_obj.textlist:
-                    _add_output_nc_variable(f, times, shape3d, out_obj,
+                    _add_output_nc_variable(f, times, shape3d,
+                                            out_obj,
                                             "zonebudget", logger=logger,
                                             text=text,
                                             mask_vals=mask_vals,
@@ -361,11 +393,13 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
 
             elif isinstance(out_obj, apobj):
                 for text in out_obj.profiles.keys():
-                    _add_output_nc_variable(f, times, shape3d, out_obj,
+                    shape3d = [out_obj.profiles[text]]
+                    _add_output_nc_variable(f, times, shape3d,
+                                            out_obj,
                                             "accretion", logger=logger,
                                             text=text.encode(),
-                                            mask_vals=mask_vals,
-                                            mask_array3d=mask_array3d)
+                                            dims=[out_obj.dimdic[text]])
+                                            # dim_extra=out_obj.dim[text])
 
             elif isinstance(out_obj, FormattedHeadFile):
                 _add_output_nc_variable(f, times, shape3d, out_obj,
@@ -1027,7 +1061,9 @@ class apobj(object):
         s = [x.split("_")[0] for x in df.columns]
         for text in df.columns:
             self.textlist.append(text.encode())
-        self.profiles = coll.Counter(s)
+        self.profiles = OrderedCounter(s)
+        # print('WWW WWW', self.profiles)
+        # self.dim = {'AP1': '', 'AP2': '2'}
 
     def get_data(self, totim=None, full3D=True, text=None):
 

@@ -139,7 +139,7 @@ class NetCdf(object):
     def __init__(self, output_filename, model, time_values=None,
                  z_positive='up',
                  verbose=None, prj=None,
-                 logger=None, forgive=False, shape3d=None):
+                 logger=None, forgive=False, shape3d=None, dims=['node']):
 
         assert output_filename.lower().endswith(".nc")
         if verbose is None:
@@ -156,13 +156,12 @@ class NetCdf(object):
         self.output_filename = output_filename
 
         self.forgive = bool(forgive)
-
+        self.dims = dims
         assert model.dis is not None
         self.model = model
         self.mg = model.modelgrid
         if prj is not None:
             self.mg.prj = prj
-
 
         grd = model.dimensions.get_model_grid()
 
@@ -616,7 +615,13 @@ class NetCdf(object):
         self.chunks = {"time": None}
         # self.chunks["x"] = int(self.shape[2] / 4) + 1
         # self.chunks["y"] = int(self.shape[1] / 4) + 1
-        self.chunks["node"] = self.shape[0]
+        # lst = [""] + list(range(2, 1000))
+        # for ii, i in enumerate(self.shape):
+        #     print('init atttrib WITTW', ii, i, "node" + str(lst[ii]))
+        #     self.chunks["node" + str(lst[ii])] = i
+        for ii, s in enumerate(self.dims):
+            self.chunks[s] = self.shape[ii]
+
         # self.chunks["layer"] = self.shape[0]
 
         self.nc = None
@@ -764,7 +769,15 @@ class NetCdf(object):
         # self.nc.createDimension('layer', self.shape[0])
         # self.nc.createDimension('y', self.shape[1])
         # self.nc.createDimension('x', self.shape[2])
-        self.nc.createDimension('node', self.shape[0])
+        # lst = [""] + list(range(2, 1000))
+        # for ii, i in enumerate(self.shape):
+        #     print('init dim WITTW', ii, i, "node" + str(lst[ii]))
+        #     # self.chunks["node" + str(lst[ii])] = i
+        #     self.nc.createDimension("node" + str(lst[ii]), i)
+
+        for ii, dim in enumerate(self.dims):
+            self.nc.createDimension(dim, self.shape[ii])
+        # self.nc.createDimension('node', self.shape[0])
         self.log("creating dimensions")
 
         self.log("setting CRS info")
