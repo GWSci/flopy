@@ -3,6 +3,7 @@ import json
 import os
 import numpy as np
 from collections import Counter, OrderedDict
+import netCDF4
 
 from ...utils import Util2d, Util3d, Transient2d, \
     HeadFile, CellBudgetFile, UcnFile, FormattedHeadFile
@@ -241,6 +242,7 @@ def _add_output_nc_variable(f, times, shape3d, out_obj, var_name, logger=None,
         var = f.create_variable(var_name, attribs,
                                 precision_str=precision_str,
                                 dimensions=tuple(dims))
+        #print('create var', var_name, attribs, precision_str, tuple(dims))
     except Exception as e:
         estr = "error creating variable {0}:\n{1}".format(
             var_name, str(e))
@@ -340,9 +342,22 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
             oudic['ap'].dimdic = {}
             lst = [""] + list(range(2, 1000))
             for ii, (text, lenap) in enumerate(oudic['ap'].profiles.items()):
+
                 d = "node" + str(lst[ii])
                 dims.append(d)
                 oudic['ap'].dimdic[text] = d
+                #print('WWWWWWW', ii, text, lenap, d)
+            # 0720 add new dimensions
+            dims.append('char_len_name')
+            oudic['ap'].dimdic["nodenames"] = 'char_len_name'
+            shape3d += [4]
+
+        # 0720 add new dimensions
+        if 'zb' in oudic:
+            oudic['zb'].dimdic = {}
+            dims.append('char_len_name')
+            oudic['zb'].dimdic["nodenames"] = 'char_len_name'
+            shape3d += [10]
 
         f = netcdf.NetCdf(f, ml, time_values=times, logger=logger,
                           forgive=forgive, shape3d=shape3d, dims=dims)
@@ -389,6 +404,18 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                                             text=text,
                                             mask_vals=mask_vals,
                                             mask_array3d=mask_array3d)
+
+                # 0720 additions
+                #for zon in (out_obj.zones):
+                var = f.create_variable('nodenames',
+                                        {'longname': 'nodenames'},
+                                        precision_str='c',
+                                        dimensions=['node',
+                                                    'char_len_name'])
+                #for iz, zon in enumerate(out_obj.zones):
+                var[:] =  netCDF4.stringtochar(np.array(['zone' + str(zon)
+                                                         for zon in out_obj.zones],
+                                                        'S10'))
                 pass
 
             elif isinstance(out_obj, apobj):
@@ -400,6 +427,15 @@ def output_helper(f, ml, oudic, shape3d=None, **kwargs):
                                             text=text.encode(),
                                             dims=[out_obj.dimdic[text]])
                                             # dim_extra=out_obj.dim[text])
+                    # 0720 additions
+                    var = f.create_variable(out_obj.dimdic[text] + 'names',
+                                            {'longname': 'nodenames'},
+                                precision_str='c',
+                                            dimensions=[out_obj.dimdic[text],
+                                                        'char_len_name'])
+                    str_out = netCDF4.stringtochar(np.array([str(i) for i in range(shape3d[0])],
+                                                            'S4'))
+                    var[:] = str_out
 
             elif isinstance(out_obj, FormattedHeadFile):
                 _add_output_nc_variable(f, times, shape3d, out_obj,
